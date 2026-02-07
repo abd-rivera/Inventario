@@ -8,6 +8,11 @@ const quantityInput = document.getElementById("quantity");
 const locationInput = document.getElementById("location");
 const priceInput = document.getElementById("price");
 const thresholdInput = document.getElementById("threshold");
+const descriptionInput = document.getElementById("description");
+const imageUrlInput = document.getElementById("imageUrl");
+const statusInput = document.getElementById("status");
+const itemDetailsToggle = document.getElementById("itemDetailsToggle");
+const itemDetailsPanel = document.getElementById("itemDetailsPanel");
 const saveBtn = document.getElementById("saveBtn");
 const cancelEditBtn = document.getElementById("cancelEdit");
 
@@ -212,6 +217,9 @@ function getFormData() {
     location: locationInput.value.trim(),
     price: Number(priceInput.value),
     threshold: Number(thresholdInput.value),
+    description: descriptionInput?.value.trim() || "",
+    imageUrl: imageUrlInput?.value.trim() || "",
+    status: statusInput?.value.trim() || "Nuevo",
     updatedAt: new Date().toISOString(),
   };
 }
@@ -223,6 +231,15 @@ function setFormData(item) {
   locationInput.value = item.location;
   priceInput.value = item.price;
   thresholdInput.value = item.threshold;
+  if (descriptionInput) {
+    descriptionInput.value = item.description || "";
+  }
+  if (imageUrlInput) {
+    imageUrlInput.value = item.imageUrl || "";
+  }
+  if (statusInput) {
+    statusInput.value = item.status || "Nuevo";
+  }
 }
 
 function resetForm() {
@@ -231,6 +248,13 @@ function resetForm() {
   itemIdInput.value = "";
   saveBtn.textContent = "Save Item";
   cancelEditBtn.hidden = true;
+  if (statusInput) {
+    statusInput.value = "Nuevo";
+  }
+  if (itemDetailsPanel && itemDetailsToggle) {
+    itemDetailsPanel.classList.add("is-collapsed");
+    itemDetailsToggle.setAttribute("aria-expanded", "false");
+  }
 }
 
 function startEdit(item) {
@@ -897,6 +921,9 @@ if (exportBtn) {
     "location",
     "price",
     "threshold",
+    "description",
+    "imageUrl",
+    "status",
     "updatedAt",
   ];
   const rows = items.map((item) =>
@@ -1011,6 +1038,9 @@ function normalizeItem(raw) {
     location: String(raw.location ?? "").trim(),
     price: Number.isNaN(price) ? 0 : price,
     threshold: Number.isNaN(threshold) ? 0 : threshold,
+    description: String(raw.description ?? "").trim(),
+    imageUrl: String(raw.imageUrl ?? raw.image_url ?? "").trim(),
+    status: String(raw.status ?? "Nuevo").trim(),
     updatedAt: raw.updatedAt || new Date().toISOString(),
   };
 }

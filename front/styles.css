@@ -258,6 +258,26 @@ body.sales-only .sales-dash.is-collapsed {
   box-shadow: var(--shadow);
 }
 
+.item-details-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.item-details-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px dashed var(--border);
+  background: #0f141b;
+}
+
+.item-details-panel.is-collapsed {
+  display: none;
+}
+
 .sales-dash {
   display: grid;
   gap: 24px;

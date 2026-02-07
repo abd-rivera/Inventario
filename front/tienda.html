@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tienda - Plus Control</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="store.css" />
+    <script defer src="store.js"></script>
+  </head>
+  <body class="store-page">
+    <header class="store-header">
+      <div class="store-brand">
+        <div class="brand-mark">PC</div>
+        <div>
+          <p class="eyebrow">Plus Control</p>
+          <h1>Tienda</h1>
+        </div>
+      </div>
+      <div class="store-search">
+        <input
+          id="storeSearch"
+          class="store-input"
+          type="search"
+          placeholder="Buscar productos"
+        />
+        <button class="store-search-btn" type="button" aria-label="Buscar">🔍</button>
+      </div>
+    </header>
+
+    <main class="store-shell">
+      <section class="store-hero">
+        <div>
+          <p class="store-tag">Catalogo</p>
+          <h2>Productos disponibles</h2>
+          <p class="store-subhead">
+            Maximo 5 productos en vitrina. Compra directa por WhatsApp.
+          </p>
+        </div>
+        <div class="store-hero-card">
+          <div id="storeCount" class="store-count">0 productos</div>
+          <div id="storeStatus" class="store-status"></div>
+        </div>
+      </section>
+
+      <section class="store-section">
+        <div id="storeGrid" class="store-grid"></div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -82,6 +82,9 @@ def init_db():
                 location TEXT NOT NULL,
                 price REAL NOT NULL,
                 threshold INTEGER NOT NULL,
+                description TEXT,
+                image_url TEXT,
+                status TEXT,
                 updated_at TEXT NOT NULL
             )
             """
@@ -100,6 +103,17 @@ def init_db():
             )
             """
         )
+
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(items)").fetchall()
+        }
+        if "description" not in columns:
+            conn.execute("ALTER TABLE items ADD COLUMN description TEXT")
+        if "image_url" not in columns:
+            conn.execute("ALTER TABLE items ADD COLUMN image_url TEXT")
+        if "status" not in columns:
+            conn.execute("ALTER TABLE items ADD COLUMN status TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS config (
@@ -132,6 +146,9 @@ def row_to_item(row):
         "location": row["location"],
         "price": row["price"],
         "threshold": row["threshold"],
+        "description": row["description"],
+        "imageUrl": row["image_url"],
+        "status": row["status"],
         "updatedAt": row["updated_at"],
     }
 
@@ -166,6 +183,9 @@ def parse_item(payload):
     name = str(payload.get("name", "")).strip()
     sku = str(payload.get("sku", "")).strip()
     location = str(payload.get("location", "")).strip()
+    description = str(payload.get("description", "")).strip()
+    image_url = str(payload.get("imageUrl", "")).strip()
+    status = str(payload.get("status", "Nuevo")).strip() or "Nuevo"
     if not name or not sku or not location:
         return None, "Missing name, sku, or location."
 
@@ -184,6 +204,9 @@ def parse_item(payload):
             "location": location,
             "price": price,
             "threshold": threshold,
+            "description": description,
+            "imageUrl": image_url,
+            "status": status,
             "updatedAt": updated_at,
         },
         None,
@@ -340,6 +363,35 @@ def validate_session():
     return jsonify({"status": "valid"})
 
 
+@app.route("/api/store/items", methods=["GET"])
+def list_store_items():
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, name, sku, quantity, price, description, image_url, status
+            FROM items
+            WHERE quantity > 0
+            ORDER BY name ASC
+            """
+        ).fetchall()
+
+    return jsonify(
+        [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "sku": row["sku"],
+                "quantity": row["quantity"],
+                "price": row["price"],
+                "description": row["description"],
+                "imageUrl": row["image_url"],
+                "status": row["status"],
+            }
+            for row in rows
+        ]
+    )
+
+
 @app.route("/api/items", methods=["GET"])
 @require_auth
 def list_items():
@@ -369,8 +421,8 @@ def create_item():
         conn.execute(
             """
             INSERT OR REPLACE INTO items
-            (id, name, sku, quantity, location, price, threshold, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (id, name, sku, quantity, location, price, threshold, description, image_url, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 item["id"],
@@ -380,6 +432,8 @@ def create_item():
                 item["location"],
                 item["price"],
                 item["threshold"],
+                item["description"],
+                item["imageUrl"],
                 item["updatedAt"],
             ),
         )
@@ -414,7 +468,7 @@ def update_item(item_id):
             """
             UPDATE items
             SET name = ?, sku = ?, quantity = ?, location = ?, price = ?,
-                threshold = ?, updated_at = ?
+                threshold = ?, description = ?, image_url = ?, updated_at = ?
             WHERE id = ?
             """,
             (
@@ -424,6 +478,8 @@ def update_item(item_id):
                 item["location"],
                 item["price"],
                 item["threshold"],
+                item["description"],
+                item["imageUrl"],
                 item["updatedAt"],
                 item_id,
             ),
@@ -466,8 +522,8 @@ def bulk_items():
         conn.executemany(
             """
             INSERT OR REPLACE INTO items
-            (id, name, sku, quantity, location, price, threshold, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (id, name, sku, quantity, location, price, threshold, description, image_url, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -478,6 +534,8 @@ def bulk_items():
                     item["location"],
                     item["price"],
                     item["threshold"],
+                    item["description"],
+                    item["imageUrl"],
                     item["updatedAt"],
                 )
                 for item in cleaned
