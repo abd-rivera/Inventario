@@ -874,7 +874,10 @@ def get_invoice(sale_id):
         pdf.cell(0, 5, f"Metodo de Pago: {pdf_safe(sale['payment_method'])}", ln=True)
         
         # Devolver PDF
-        pdf_bytes = BytesIO(pdf.output(dest='S').encode('latin-1'))
+        pdf_output = pdf.output(dest="S")
+        if isinstance(pdf_output, str):
+            pdf_output = pdf_output.encode("latin-1", "replace")
+        pdf_bytes = BytesIO(pdf_output)
         pdf_bytes.seek(0)
         
         return send_file(
