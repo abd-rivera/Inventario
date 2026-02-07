@@ -1,0 +1,8 @@
+[hidden] {
+  display: none !important;
+}
+
+#loginForm[hidden],
+#registerForm[hidden] {
+  display: none !important;
+}

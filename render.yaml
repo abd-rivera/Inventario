@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: plus-control
+    env: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python back/app.py"
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: FLASK_APP
+        value: back/app.py

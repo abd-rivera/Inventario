@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Login - Plus Control</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="login.js"></script>
+  </head>
+  <body>
+    <div id="toastContainer" class="toast-container"></div>
+    
+    <div class="auth-container">
+      <div class="auth-card">
+        <div class="brand-center">
+          <div class="brand-mark">PC</div>
+          <h1>Plus Control</h1>
+          <p class="auth-subtitle">Inventory Management System</p>
+        </div>
+
+        <div class="auth-tabs">
+          <button id="loginTab" class="tab-btn active" type="button">Iniciar Sesión</button>
+          <button id="registerTab" class="tab-btn" type="button">Registrarse</button>
+        </div>
+
+        <form id="loginForm" class="auth-form">
+          <p id="loginError" class="form-error" aria-live="polite"></p>
+          <label>
+            Usuario
+            <input
+              id="loginUsername"
+              name="username"
+              type="text"
+              required
+              autocomplete="username"
+              placeholder="Tu nombre de usuario"
+            />
+          </label>
+          <label>
+            Contraseña
+            <input
+              id="loginPassword"
+              name="password"
+              type="password"
+              required
+              autocomplete="current-password"
+              placeholder="Tu contraseña"
+            />
+          </label>
+          <button type="submit" class="btn btn-primary btn-block">Iniciar Sesión</button>
+        </form>
+
+        <form id="registerForm" class="auth-form" hidden>
+          <p id="registerError" class="form-error" aria-live="polite"></p>
+          <label>
+            Usuario
+            <input
+              id="registerUsername"
+              name="username"
+              type="text"
+              required
+              autocomplete="username"
+              placeholder="Elige un nombre de usuario"
+            />
+          </label>
+          <label>
+            Contraseña
+            <input
+              id="registerPassword"
+              name="password"
+              type="password"
+              required
+              autocomplete="new-password"
+              minlength="4"
+              placeholder="Mínimo 4 caracteres"
+            />
+          </label>
+          <label>
+            Confirmar Contraseña
+            <input
+              id="registerPasswordConfirm"
+              name="passwordConfirm"
+              type="password"
+              required
+              autocomplete="new-password"
+              minlength="4"
+              placeholder="Repite tu contraseña"
+            />
+          </label>
+          <button type="submit" class="btn btn-primary btn-block">Crear Cuenta</button>
+        </form>
+      </div>
+    </div>
+  </body>
+</html>
