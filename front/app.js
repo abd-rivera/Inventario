@@ -813,6 +813,29 @@ salesBody.addEventListener("click", async (event) => {
       showToast("Error al eliminar venta. Verifica la conexión con el servidor.", "error");
     }
   }
+  if (action === "invoice") {
+    try {
+      const response = await fetch(`${API_BASE}/sales/${id}/invoice`, {
+        headers: {
+          "Authorization": `Bearer ${authToken}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error("Failed to download invoice");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `invoice_${id.substring(0, 8)}.pdf`;
+      link.click();
+      URL.revokeObjectURL(url);
+      showToast("Factura descargada exitosamente", "success");
+    } catch (error) {
+      console.error(error);
+      showToast("Error al descargar factura. Intenta de nuevo.", "error");
+    }
+  }
 });
 
 if (reportToggleBtn) {
@@ -1040,6 +1063,9 @@ function renderSalesTable() {
         <td>${escapeHtml(sale.paymentMethod)}</td>
         <td>${formatDate(sale.createdAt)}</td>
         <td>
+          <button class="action-btn info" data-action="invoice" data-id="${
+            sale.id
+          }">Invoice</button>
           <button class="action-btn danger" data-action="delete" data-id="${
             sale.id
           }">Delete</button>

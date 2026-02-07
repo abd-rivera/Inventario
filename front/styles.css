@@ -443,6 +443,10 @@ tbody tr:hover {
   color: #f97316;
 }
 
+.action-btn.info {
+  color: #3b82f6;
+}
+
 .qty-cell {
   cursor: pointer;
   user-select: none;

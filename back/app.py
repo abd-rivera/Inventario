@@ -3,9 +3,11 @@ import sqlite3
 import uuid
 from datetime import datetime, timedelta
 from functools import wraps
+from io import BytesIO
 
 from flask import Flask, jsonify, request, send_from_directory, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
+from fpdf import FPDF
 
 BASE_DIR = os.path.dirname(__file__)
 FRONT_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "front"))
@@ -792,6 +794,69 @@ def get_purchases():
             for p in purchases
         ]
     )
+
+
+@app.route("/api/sales/<sale_id>/invoice", methods=["GET"])
+@require_auth
+def get_invoice(sale_id):
+    with get_db() as conn:
+        sale = conn.execute(
+            """
+            SELECT s.id, s.item_id, s.quantity, s.price, s.total, s.payment_method, s.created_at, i.name, i.sku
+            FROM sales s
+            LEFT JOIN items i ON s.item_id = i.id
+            WHERE s.id = ?
+            """,
+            (sale_id,)
+        ).fetchone()
+        
+        if not sale:
+            return jsonify({"error": "Sale not found"}), 404
+        
+        # Crear PDF
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", "B", 16)
+        pdf.cell(0, 10, "FACTURA DE VENTA", ln=True, align="C")
+        
+        pdf.set_font("Arial", "", 10)
+        pdf.ln(5)
+        pdf.cell(0, 5, f"Fecha: {sale['created_at'][:10]}", ln=True)
+        pdf.cell(0, 5, f"Factura #: {sale['id'][:8]}", ln=True)
+        
+        pdf.ln(5)
+        pdf.set_font("Arial", "B", 10)
+        pdf.cell(60, 5, "Producto", border=1)
+        pdf.cell(30, 5, "SKU", border=1)
+        pdf.cell(25, 5, "Cantidad", border=1)
+        pdf.cell(30, 5, "Precio Unit.", border=1)
+        pdf.cell(30, 5, "Total", border=1, ln=True)
+        
+        pdf.set_font("Arial", "", 10)
+        pdf.cell(60, 5, sale["name"] or "N/A", border=1)
+        pdf.cell(30, 5, sale["sku"] or "N/A", border=1)
+        pdf.cell(25, 5, str(sale["quantity"]), border=1)
+        pdf.cell(30, 5, f"${sale['price']:.2f}", border=1)
+        pdf.cell(30, 5, f"${sale['total']:.2f}", border=1, ln=True)
+        
+        pdf.ln(5)
+        pdf.set_font("Arial", "B", 10)
+        pdf.cell(120, 5, "TOTAL:", border=1)
+        pdf.cell(30, 5, f"${sale['total']:.2f}", border=1, ln=True)
+        
+        pdf.ln(5)
+        pdf.cell(0, 5, f"Metodo de Pago: {sale['payment_method']}", ln=True)
+        
+        # Devolver PDF
+        pdf_bytes = BytesIO(pdf.output(dest='S').encode('latin-1'))
+        pdf_bytes.seek(0)
+        
+        return send_file(
+            pdf_bytes,
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=f"factura_{sale_id[:8]}.pdf"
+        )
 
 
 if __name__ == "__main__":
