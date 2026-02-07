@@ -10,3 +10,5 @@ services:
         value: production
       - key: FLASK_APP
         value: back/app.py
+      - key: APP_TZ
+        value: America/Panama

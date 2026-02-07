@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timedelta
 from functools import wraps
 from io import BytesIO
+from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, request, send_from_directory, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -15,6 +16,31 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 DB_PATH = os.path.join(DATA_DIR, "inventory.db")
 
 app = Flask(__name__, static_folder=FRONT_DIR, static_url_path="")
+
+
+def now_local():
+    tz_name = os.getenv("APP_TZ", "America/Panama")
+    return datetime.now(ZoneInfo(tz_name))
+
+
+def pdf_safe(value, default="N/A"):
+    if value is None:
+        return default
+    text = str(value)
+    return text.encode("latin-1", "replace").decode("latin-1")
+
+
+def format_invoice_datetime(value):
+    if not value:
+        return ""
+    try:
+        dt = datetime.fromisoformat(value)
+        if dt.tzinfo is None:
+            return dt.strftime("%Y-%m-%d %H:%M")
+        tz_name = os.getenv("APP_TZ", "America/Panama")
+        return dt.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return str(value)
 
 
 def get_db():
@@ -147,7 +173,7 @@ def parse_item(payload):
     quantity = to_int(payload.get("quantity"))
     threshold = to_int(payload.get("threshold"))
     price = to_float(payload.get("price"))
-    updated_at = payload.get("updatedAt") or datetime.now().isoformat()
+    updated_at = payload.get("updatedAt") or now_local().isoformat()
 
     return (
         {
@@ -165,7 +191,7 @@ def parse_item(payload):
 
 
 def get_week_range():
-    now = datetime.now()
+    now = now_local()
     start = now - timedelta(days=now.weekday())
     start = start.replace(hour=0, minute=0, second=0, microsecond=0)
     end = start + timedelta(days=7)
@@ -202,7 +228,7 @@ def cleanup_expired_sessions():
     """Limpiar sesiones más antiguas de 7 días"""
     try:
         with get_db() as conn:
-            cutoff = (datetime.now() - timedelta(days=7)).isoformat()
+            cutoff = (now_local() - timedelta(days=7)).isoformat()
             conn.execute(
                 "DELETE FROM sessions WHERE created_at < ?", (cutoff,)
             )
@@ -250,7 +276,7 @@ def register():
 
         user_id = str(uuid.uuid4())
         password_hash = generate_password_hash(password)
-        created_at = datetime.now().isoformat()
+        created_at = now_local().isoformat()
 
         conn.execute(
             "INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)",
@@ -285,7 +311,7 @@ def login():
         return jsonify({"error": "Invalid username or password."}), 401
 
     token = str(uuid.uuid4())
-    created_at = datetime.now().isoformat()
+    created_at = now_local().isoformat()
 
     with get_db() as conn:
         conn.execute(
@@ -481,7 +507,7 @@ def backup():
         DB_PATH,
         mimetype="application/octet-stream",
         as_attachment=True,
-        download_name=f"backup-{datetime.now().strftime('%Y-%m-%d')}.db"
+        download_name=f"backup-{now_local().strftime('%Y-%m-%d')}.db"
     )
 
 
@@ -560,7 +586,7 @@ def create_sale():
 
     total = quantity * price
     sale_id = str(uuid.uuid4())
-    created_at = datetime.now().isoformat()
+    created_at = now_local().isoformat()
 
     with get_db() as conn:
         item = conn.execute(
@@ -665,9 +691,9 @@ def get_finance():
         margin = (total_gain / capital_actual * 100) if capital_actual > 0 else 0
 
         # Ganancia por período
-        today = datetime.now().date().isoformat()
-        week_ago = (datetime.now() - timedelta(days=7)).date().isoformat()
-        month_ago = (datetime.now() - timedelta(days=30)).date().isoformat()
+        today = now_local().date().isoformat()
+        week_ago = (now_local() - timedelta(days=7)).date().isoformat()
+        month_ago = (now_local() - timedelta(days=30)).date().isoformat()
 
         gain_today = conn.execute(
             f"""
@@ -738,7 +764,7 @@ def create_purchase():
 
     total_cost = quantity * cost_unit
     purchase_id = str(uuid.uuid4())
-    created_at = datetime.now().isoformat()
+    created_at = now_local().isoformat()
 
     with get_db() as conn:
         # Verificar que el item existe
@@ -821,7 +847,7 @@ def get_invoice(sale_id):
         
         pdf.set_font("Arial", "", 10)
         pdf.ln(5)
-        pdf.cell(0, 5, f"Fecha: {sale['created_at'][:10]}", ln=True)
+        pdf.cell(0, 5, f"Fecha: {format_invoice_datetime(sale['created_at'])}", ln=True)
         pdf.cell(0, 5, f"Factura #: {sale['id'][:8]}", ln=True)
         
         pdf.ln(5)
@@ -833,8 +859,8 @@ def get_invoice(sale_id):
         pdf.cell(30, 5, "Total", border=1, ln=True)
         
         pdf.set_font("Arial", "", 10)
-        pdf.cell(60, 5, sale["name"] or "N/A", border=1)
-        pdf.cell(30, 5, sale["sku"] or "N/A", border=1)
+        pdf.cell(60, 5, pdf_safe(sale["name"]), border=1)
+        pdf.cell(30, 5, pdf_safe(sale["sku"]), border=1)
         pdf.cell(25, 5, str(sale["quantity"]), border=1)
         pdf.cell(30, 5, f"${sale['price']:.2f}", border=1)
         pdf.cell(30, 5, f"${sale['total']:.2f}", border=1, ln=True)
@@ -845,7 +871,7 @@ def get_invoice(sale_id):
         pdf.cell(30, 5, f"${sale['total']:.2f}", border=1, ln=True)
         
         pdf.ln(5)
-        pdf.cell(0, 5, f"Metodo de Pago: {sale['payment_method']}", ln=True)
+        pdf.cell(0, 5, f"Metodo de Pago: {pdf_safe(sale['payment_method'])}", ln=True)
         
         # Devolver PDF
         pdf_bytes = BytesIO(pdf.output(dest='S').encode('latin-1'))
