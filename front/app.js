@@ -25,11 +25,13 @@ const statItems = document.getElementById("statItems");
 const statUnits = document.getElementById("statUnits");
 const statLow = document.getElementById("statLow");
 const statValue = document.getElementById("statValue");
+const statCash = document.getElementById("statCash");
 
 const statItemsTrend = document.getElementById("statItemsTrend");
 const statUnitsTrend = document.getElementById("statUnitsTrend");
 const statLowTrend = document.getElementById("statLowTrend");
 const statValueTrend = document.getElementById("statValueTrend");
+const statCashTrend = document.getElementById("statCashTrend");
 
 const lowStockPanel = document.getElementById("lowStockPanel");
 const lowStockList = document.getElementById("lowStockList");
@@ -95,6 +97,10 @@ const financeMargin = document.getElementById("financeMargin");
 const financeGainToday = document.getElementById("financeGainToday");
 const financeGainWeek = document.getElementById("financeGainWeek");
 const financeGainMonth = document.getElementById("financeGainMonth");
+const financeTotalCash = document.getElementById("financeTotalCash");
+const financeCashToday = document.getElementById("financeCashToday");
+const financeCashWeek = document.getElementById("financeCashWeek");
+const financeCashMonth = document.getElementById("financeCashMonth");
 
 const authToken = localStorage.getItem("authToken");
 const username = localStorage.getItem("username");
@@ -1084,12 +1090,14 @@ function renderSalesTable() {
     .map((sale) => {
       const item = items.find((i) => i.id === sale.itemId);
       const itemName = item ? item.name : "Unknown";
+      const gain = sale.gain || 0;
       return `
       <tr>
         <td>${escapeHtml(itemName)}</td>
         <td>${sale.quantity}</td>
         <td>${currency.format(sale.price)}</td>
         <td>${currency.format(sale.total)}</td>
+        <td>${currency.format(gain)}</td>
         <td>${escapeHtml(sale.paymentMethod)}</td>
         <td>${formatDate(sale.createdAt)}</td>
         <td>
@@ -1183,6 +1191,7 @@ saleForm.addEventListener("submit", async (event) => {
     saleError.textContent = "";
     await loadSales();
     await loadItems();
+    await updateCashDashboard();
     syncUI();
     showToast("Venta registrada exitosamente", "success");
   } catch (error) {
@@ -1375,6 +1384,19 @@ async function updateFinanceDashboard() {
   }
 }
 
+async function updateCashDashboard() {
+  try {
+    const data = await fetchJson(`${API_BASE}/cash`);
+    if (statCash) statCash.textContent = currency.format(data.totalCash);
+    if (financeTotalCash) financeTotalCash.textContent = currency.format(data.totalCash);
+    if (financeCashToday) financeCashToday.textContent = currency.format(data.cashToday);
+    if (financeCashWeek) financeCashWeek.textContent = currency.format(data.cashWeek);
+    if (financeCashMonth) financeCashMonth.textContent = currency.format(data.cashMonth);
+  } catch (error) {
+    console.error("Error updating cash dashboard:", error);
+  }
+}
+
 // Iniciar aplicación: cargar datos al abrir la página
 async function initializeApp() {
   console.log("=== App Initialization Started ===");
@@ -1406,7 +1428,8 @@ async function initializeApp() {
     console.log("Loading purchases...");
     await loadPurchases();
     await updateFinanceDashboard();
-    console.log("✓ Purchases and finance loaded");
+    await updateCashDashboard();
+    console.log("✓ Purchases, finance and cash loaded");
     
     console.log("=== App Ready ===");
   } catch (error) {

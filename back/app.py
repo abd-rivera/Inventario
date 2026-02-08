@@ -135,6 +135,17 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cash (
+                id TEXT PRIMARY KEY,
+                sale_id TEXT NOT NULL,
+                gain REAL NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (sale_id) REFERENCES sales (id)
+            )
+            """
+        )
 
 
 def row_to_item(row):
@@ -550,9 +561,16 @@ def bulk_items():
 def list_sales():
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT * FROM sales ORDER BY created_at DESC"
+            "SELECT s.*, COALESCE(c.gain, 0) as gain FROM sales s LEFT JOIN cash c ON s.id = c.sale_id ORDER BY s.created_at DESC"
         ).fetchall()
-    return jsonify([row_to_sale(row) for row in rows])
+    
+    sales_list = []
+    for row in rows:
+        sale = row_to_sale(row)
+        sale["gain"] = round(row["gain"], 2) if row["gain"] else 0
+        sales_list.append(sale)
+    
+    return jsonify(sales_list)
 
 
 @app.route("/api/backup")
@@ -656,6 +674,21 @@ def create_sale():
         if item["quantity"] < quantity:
             return jsonify({"error": "Not enough stock."}), 400
 
+        # Calcular costo promedio del item
+        cost_result = conn.execute(
+            """
+            SELECT COALESCE(
+                (SELECT SUM(cost_unit * quantity) FROM purchases WHERE item_id = ?) / 
+                NULLIF((SELECT SUM(quantity) FROM purchases WHERE item_id = ?), 0),
+                0
+            ) as cost_unit
+            """,
+            (item_id, item_id)
+        ).fetchone()
+        
+        cost_unit = cost_result["cost_unit"] if cost_result else 0
+        gain = (price - cost_unit) * quantity
+
         conn.execute(
             "INSERT INTO sales (id, item_id, quantity, price, total, payment_method, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (sale_id, item_id, quantity, price, total, payment_method, created_at),
@@ -664,6 +697,14 @@ def create_sale():
             "UPDATE items SET quantity = quantity - ? WHERE id = ?",
             (quantity, item_id),
         )
+        
+        # Guardar ganancia en efectivo
+        cash_id = str(uuid.uuid4())
+        conn.execute(
+            "INSERT INTO cash (id, sale_id, gain, created_at) VALUES (?, ?, ?, ?)",
+            (cash_id, sale_id, gain, created_at),
+        )
+        
         conn.commit()
 
     return (
@@ -674,6 +715,7 @@ def create_sale():
                 "quantity": quantity,
                 "price": price,
                 "total": total,
+                "gain": round(gain, 2),
                 "paymentMethod": payment_method,
                 "createdAt": created_at,
             }
@@ -697,6 +739,7 @@ def delete_sale(sale_id):
             (sale["quantity"], sale["item_id"]),
         )
         conn.execute("DELETE FROM sales WHERE id = ?", (sale_id,))
+        conn.execute("DELETE FROM cash WHERE sale_id = ?", (sale_id,))
         conn.commit()
 
     return jsonify({"status": "deleted"})
@@ -784,6 +827,53 @@ def get_finance():
             "gainToday": gain_today,
             "gainWeek": gain_week,
             "gainMonth": gain_month,
+        }
+    )
+
+
+@app.route("/api/cash", methods=["GET"])
+@require_auth
+def get_cash():
+    """Obtener saldo total de efectivo ganado por ventas"""
+    with get_db() as conn:
+        result = conn.execute(
+            "SELECT COALESCE(SUM(gain), 0) as total_cash FROM cash"
+        ).fetchone()
+        
+        total_cash = float(result["total_cash"]) if result else 0
+        
+        # Ganancia por período
+        today = now_local().date().isoformat()
+        week_ago = (now_local() - timedelta(days=7)).date().isoformat()
+        month_ago = (now_local() - timedelta(days=30)).date().isoformat()
+        
+        cash_today = conn.execute(
+            f"""
+            SELECT COALESCE(SUM(gain), 0) as total FROM cash 
+            WHERE DATE(created_at) = '{today}'
+            """
+        ).fetchone()["total"]
+        
+        cash_week = conn.execute(
+            f"""
+            SELECT COALESCE(SUM(gain), 0) as total FROM cash 
+            WHERE DATE(created_at) >= '{week_ago}'
+            """
+        ).fetchone()["total"]
+        
+        cash_month = conn.execute(
+            f"""
+            SELECT COALESCE(SUM(gain), 0) as total FROM cash 
+            WHERE DATE(created_at) >= '{month_ago}'
+            """
+        ).fetchone()["total"]
+    
+    return jsonify(
+        {
+            "totalCash": round(total_cash, 2),
+            "cashToday": round(cash_today, 2),
+            "cashWeek": round(cash_week, 2),
+            "cashMonth": round(cash_month, 2),
         }
     )
 
