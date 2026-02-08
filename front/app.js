@@ -8,11 +8,6 @@ const quantityInput = document.getElementById("quantity");
 const locationInput = document.getElementById("location");
 const priceInput = document.getElementById("price");
 const thresholdInput = document.getElementById("threshold");
-const descriptionInput = document.getElementById("description");
-const imageUrlInput = document.getElementById("imageUrl");
-const statusInput = document.getElementById("status");
-const itemDetailsToggle = document.getElementById("itemDetailsToggle");
-const itemDetailsPanel = document.getElementById("itemDetailsPanel");
 const saveBtn = document.getElementById("saveBtn");
 const cancelEditBtn = document.getElementById("cancelEdit");
 
@@ -223,9 +218,9 @@ function getFormData() {
     location: locationInput.value.trim(),
     price: Number(priceInput.value),
     threshold: Number(thresholdInput.value),
-    description: descriptionInput?.value.trim() || "",
-    imageUrl: imageUrlInput?.value.trim() || "",
-    status: statusInput?.value.trim() || "Nuevo",
+    description: "",
+    imageUrl: "",
+    status: "Nuevo",
     updatedAt: new Date().toISOString(),
   };
 }
@@ -237,12 +232,6 @@ function setFormData(item) {
   locationInput.value = item.location;
   priceInput.value = item.price;
   thresholdInput.value = item.threshold;
-  if (descriptionInput) {
-    descriptionInput.value = item.description || "";
-  }
-  if (imageUrlInput) {
-    imageUrlInput.value = item.imageUrl || "";
-  }
   if (statusInput) {
     statusInput.value = item.status || "Nuevo";
   }
@@ -254,13 +243,6 @@ function resetForm() {
   itemIdInput.value = "";
   saveBtn.textContent = "Save Item";
   cancelEditBtn.hidden = true;
-  if (statusInput) {
-    statusInput.value = "Nuevo";
-  }
-  if (itemDetailsPanel && itemDetailsToggle) {
-    itemDetailsPanel.classList.add("is-collapsed");
-    itemDetailsToggle.setAttribute("aria-expanded", "false");
-  }
 }
 
 function startEdit(item) {

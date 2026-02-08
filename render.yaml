@@ -5,6 +5,10 @@ services:
     plan: free
     buildCommand: "pip install -r requirements.txt"
     startCommand: "python back/app.py"
+    disk:
+      name: plus-control-data
+      mountPath: /opt/render/project/src/back/data
+      sizeGB: 1
     envVars:
       - key: FLASK_ENV
         value: production
