@@ -7,6 +7,7 @@ const skuInput = document.getElementById("sku");
 const quantityInput = document.getElementById("quantity");
 const locationInput = document.getElementById("location");
 const priceInput = document.getElementById("price");
+const costUnitInput = document.getElementById("costUnit");
 const thresholdInput = document.getElementById("threshold");
 const saveBtn = document.getElementById("saveBtn");
 const cancelEditBtn = document.getElementById("cancelEdit");
@@ -217,6 +218,7 @@ function getFormData() {
     quantity: Number(quantityInput.value),
     location: locationInput.value.trim(),
     price: Number(priceInput.value),
+    costUnit: Number(costUnitInput.value),
     threshold: Number(thresholdInput.value),
     description: "",
     imageUrl: "",
@@ -231,6 +233,7 @@ function setFormData(item) {
   quantityInput.value = item.quantity;
   locationInput.value = item.location;
   priceInput.value = item.price;
+  costUnitInput.value = item.costUnit || 0;
   thresholdInput.value = item.threshold;
   if (statusInput) {
     statusInput.value = item.status || "Nuevo";

@@ -114,6 +114,8 @@ def init_db():
             conn.execute("ALTER TABLE items ADD COLUMN image_url TEXT")
         if "status" not in columns:
             conn.execute("ALTER TABLE items ADD COLUMN status TEXT")
+        if "cost_unit" not in columns:
+            conn.execute("ALTER TABLE items ADD COLUMN cost_unit REAL DEFAULT 0")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS config (
@@ -156,6 +158,7 @@ def row_to_item(row):
         "quantity": row["quantity"],
         "location": row["location"],
         "price": row["price"],
+        "costUnit": row["cost_unit"] if "cost_unit" in row.keys() else 0,
         "threshold": row["threshold"],
         "description": row["description"],
         "imageUrl": row["image_url"],
@@ -204,6 +207,7 @@ def parse_item(payload):
     quantity = to_int(payload.get("quantity"))
     threshold = to_int(payload.get("threshold"))
     price = to_float(payload.get("price"))
+    cost_unit = to_float(payload.get("costUnit"))
     updated_at = payload.get("updatedAt") or now_local().isoformat()
 
     return (
@@ -214,6 +218,7 @@ def parse_item(payload):
             "quantity": quantity,
             "location": location,
             "price": price,
+            "costUnit": cost_unit,
             "threshold": threshold,
             "description": description,
             "imageUrl": image_url,
@@ -432,8 +437,8 @@ def create_item():
         conn.execute(
             """
             INSERT OR REPLACE INTO items
-            (id, name, sku, quantity, location, price, threshold, description, image_url, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, name, sku, quantity, location, price, cost_unit, threshold, description, image_url, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 item["id"],
@@ -442,6 +447,7 @@ def create_item():
                 item["quantity"],
                 item["location"],
                 item["price"],
+                item["costUnit"],
                 item["threshold"],
                 item["description"],
                 item["imageUrl"],
@@ -478,7 +484,7 @@ def update_item(item_id):
         conn.execute(
             """
             UPDATE items
-            SET name = ?, sku = ?, quantity = ?, location = ?, price = ?,
+            SET name = ?, sku = ?, quantity = ?, location = ?, price = ?, cost_unit = ?,
                 threshold = ?, description = ?, image_url = ?, updated_at = ?
             WHERE id = ?
             """,
@@ -488,6 +494,7 @@ def update_item(item_id):
                 item["quantity"],
                 item["location"],
                 item["price"],
+                item["costUnit"],
                 item["threshold"],
                 item["description"],
                 item["imageUrl"],
@@ -533,8 +540,8 @@ def bulk_items():
         conn.executemany(
             """
             INSERT OR REPLACE INTO items
-            (id, name, sku, quantity, location, price, threshold, description, image_url, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, name, sku, quantity, location, price, cost_unit, threshold, description, image_url, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -544,6 +551,7 @@ def bulk_items():
                     item["quantity"],
                     item["location"],
                     item["price"],
+                    item["costUnit"],
                     item["threshold"],
                     item["description"],
                     item["imageUrl"],
@@ -666,7 +674,7 @@ def create_sale():
 
     with get_db() as conn:
         item = conn.execute(
-            "SELECT quantity FROM items WHERE id = ?", (item_id,)
+            "SELECT quantity, cost_unit FROM items WHERE id = ?", (item_id,)
         ).fetchone()
         if not item:
             return jsonify({"error": "Item not found."}), 404
@@ -674,19 +682,8 @@ def create_sale():
         if item["quantity"] < quantity:
             return jsonify({"error": "Not enough stock."}), 400
 
-        # Calcular costo promedio del item
-        cost_result = conn.execute(
-            """
-            SELECT COALESCE(
-                (SELECT SUM(cost_unit * quantity) FROM purchases WHERE item_id = ?) / 
-                NULLIF((SELECT SUM(quantity) FROM purchases WHERE item_id = ?), 0),
-                0
-            ) as cost_unit
-            """,
-            (item_id, item_id)
-        ).fetchone()
-        
-        cost_unit = cost_result["cost_unit"] if cost_result else 0
+        # Usar el costo unitario del item
+        cost_unit = item["cost_unit"] if item["cost_unit"] else 0
         gain = (price - cost_unit) * quantity
 
         conn.execute(
