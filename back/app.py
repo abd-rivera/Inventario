@@ -831,13 +831,23 @@ def get_finance():
 @app.route("/api/cash", methods=["GET"])
 @require_auth
 def get_cash():
-    """Obtener saldo total de efectivo ganado por ventas"""
+    """Obtener saldo total de efectivo ganado por ventas y capital recuperado"""
     with get_db() as conn:
+        # Ganancia total de la billetera
         result = conn.execute(
             "SELECT COALESCE(SUM(gain), 0) as total_cash FROM cash"
         ).fetchone()
         
         total_cash = float(result["total_cash"]) if result else 0
+        
+        # Inversión recuperada (suma de costos de productos vendidos)
+        investment_recovered = conn.execute(
+            """
+            SELECT COALESCE(SUM(i.cost_unit * s.quantity), 0) as recovered
+            FROM sales s
+            JOIN items i ON s.item_id = i.id
+            """
+        ).fetchone()["recovered"]
         
         # Ganancia por período
         today = now_local().date().isoformat()
@@ -868,6 +878,7 @@ def get_cash():
     return jsonify(
         {
             "totalCash": round(total_cash, 2),
+            "investmentRecovered": round(investment_recovered, 2),
             "cashToday": round(cash_today, 2),
             "cashWeek": round(cash_week, 2),
             "cashMonth": round(cash_month, 2),

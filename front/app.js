@@ -93,6 +93,7 @@ const financeMargin = document.getElementById("financeMargin");
 const financeGainToday = document.getElementById("financeGainToday");
 const financeGainWeek = document.getElementById("financeGainWeek");
 const financeGainMonth = document.getElementById("financeGainMonth");
+const financeInvestmentRecovered = document.getElementById("financeInvestmentRecovered");
 const financeTotalCash = document.getElementById("financeTotalCash");
 const financeCashToday = document.getElementById("financeCashToday");
 const financeCashWeek = document.getElementById("financeCashWeek");
@@ -1373,6 +1374,7 @@ async function updateCashDashboard() {
   try {
     const data = await fetchJson(`${API_BASE}/cash`);
     if (statCash) statCash.textContent = currency.format(data.totalCash);
+    if (financeInvestmentRecovered) financeInvestmentRecovered.textContent = currency.format(data.investmentRecovered);
     if (financeTotalCash) financeTotalCash.textContent = currency.format(data.totalCash);
     if (financeCashToday) financeCashToday.textContent = currency.format(data.cashToday);
     if (financeCashWeek) financeCashWeek.textContent = currency.format(data.cashWeek);
