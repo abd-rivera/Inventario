@@ -291,7 +291,7 @@ def static_files(path):
 
 @app.route("/api/health")
 def health():
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "version": "2.0"})
 
 
 @app.route("/api/auth/register", methods=["POST"])
