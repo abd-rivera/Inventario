@@ -65,39 +65,15 @@ const salesToggleBtn = document.getElementById("salesToggleBtn");
 const salesBackBtn = document.getElementById("salesBackBtn");
 const salesSearch = document.getElementById("salesSearch");
 const salesPaymentFilter = document.getElementById("salesPaymentFilter");
+const totalEfectivo = document.getElementById("totalEfectivo");
+const totalYappy = document.getElementById("totalYappy");
+const totalVentas = document.getElementById("totalVentas");
 const logoutBtn = document.getElementById("logoutBtn");
 const userDisplay = document.getElementById("userDisplay");
 
 let items = [];
 let sales = [];
-let purchases = [];
 let editingId = null;
-
-// Finance elements
-const financeToggleBtn = document.getElementById("financeToggleBtn");
-const financeBackBtn = document.getElementById("financeBackBtn");
-const financeDash = document.getElementById("financeDash");
-const capitalForm = document.getElementById("capitalForm");
-const capitalInput = document.getElementById("capitalInput");
-const purchaseForm = document.getElementById("purchaseForm");
-const purchaseItemId = document.getElementById("purchaseItemId");
-const purchaseQuantity = document.getElementById("purchaseQuantity");
-const purchaseCostUnit = document.getElementById("purchaseCostUnit");
-const purchaseTotalCost = document.getElementById("purchaseTotalCost");
-const purchasesBody = document.getElementById("purchasesBody");
-const financeInitialCapital = document.getElementById("financeInitialCapital");
-const financeTotalInvested = document.getElementById("financeTotalInvested");
-const financeTotalGain = document.getElementById("financeTotalGain");
-const financeCapitalActual = document.getElementById("financeCapitalActual");
-const financeMargin = document.getElementById("financeMargin");
-const financeGainToday = document.getElementById("financeGainToday");
-const financeGainWeek = document.getElementById("financeGainWeek");
-const financeGainMonth = document.getElementById("financeGainMonth");
-const financeInvestmentRecovered = document.getElementById("financeInvestmentRecovered");
-const financeTotalCash = document.getElementById("financeTotalCash");
-const financeCashToday = document.getElementById("financeCashToday");
-const financeCashWeek = document.getElementById("financeCashWeek");
-const financeCashMonth = document.getElementById("financeCashMonth");
 
 const authToken = localStorage.getItem("authToken");
 const username = localStorage.getItem("username");
@@ -305,10 +281,12 @@ function renderStats() {
     (sum, item) => sum + item.quantity * item.price,
     0
   );
+  const totalCash = sales.reduce((sum, sale) => sum + (sale.gain || 0), 0);
 
   statUnits.textContent = totalUnits.toString();
   statLow.textContent = lowCount.toString();
   statValue.textContent = currency.format(totalValue);
+  statCash.textContent = currency.format(totalCash);
 
   // Calculate trends (7 days ago)
   const sevenDaysAgo = new Date();
@@ -318,12 +296,14 @@ function renderStats() {
   const oldItemCount = items.length; // Simplified - would need history
   const oldTotalUnits = oldSales.reduce((sum, s) => sum + s.quantity, 0);
   const oldTotalValue = oldSales.reduce((sum, s) => sum + s.total, 0);
+  const oldTotalCash = oldSales.reduce((sum, sale) => sum + (sale.gain || 0), 0);
 
   // Show trends
   updateTrendIndicator(statItemsTrend, items.length, oldItemCount);
   updateTrendIndicator(statUnitsTrend, totalUnits, oldTotalUnits);
   updateTrendIndicator(statLowTrend, lowCount, 0);
   updateTrendIndicator(statValueTrend, totalValue, oldTotalValue);
+  updateTrendIndicator(statCashTrend, totalCash, oldTotalCash);
 
   // Show low stock alerts
   renderLowStockAlerts();
@@ -633,9 +613,6 @@ function syncUI() {
   renderTable();
   updateCharts();
   updateSaleItemOptions();
-  populatePurchaseItemSelect();
-  renderPurchases();
-  updateFinanceDashboard().catch(err => console.error("Finance update error:", err));
 }
 
 function setSalesDashOpen(isOpen) {
@@ -1068,7 +1045,8 @@ function renderSalesTable() {
 
   if (filteredSales.length === 0) {
     salesBody.innerHTML =
-      "<tr><td colspan='7'>No sales found.</td></tr>";
+      "<tr><td colspan='8'>No sales found.</td></tr>";
+    updatePaymentSummary(filteredSales);
     return;
   }
 
@@ -1077,6 +1055,9 @@ function renderSalesTable() {
       const item = items.find((i) => i.id === sale.itemId);
       const itemName = item ? item.name : "Unknown";
       const gain = sale.gain || 0;
+      const paymentBadge = sale.paymentMethod === "Yappy" 
+        ? `<span class="badge badge-yappy">⚡ ${sale.paymentMethod}</span>`
+        : `<span class="badge badge-efectivo">💵 ${sale.paymentMethod}</span>`;
       return `
       <tr>
         <td>${escapeHtml(itemName)}</td>
@@ -1084,7 +1065,7 @@ function renderSalesTable() {
         <td>${currency.format(sale.price)}</td>
         <td>${currency.format(sale.total)}</td>
         <td>${currency.format(gain)}</td>
-        <td>${escapeHtml(sale.paymentMethod)}</td>
+        <td>${paymentBadge}</td>
         <td>${formatDate(sale.createdAt)}</td>
         <td>
           <button class="action-btn info" data-action="invoice" data-id="${
@@ -1097,6 +1078,24 @@ function renderSalesTable() {
       </tr>`;
     })
     .join("");
+  
+  updatePaymentSummary(filteredSales);
+}
+
+function updatePaymentSummary(salesList) {
+  const yappyTotal = salesList
+    .filter(s => s.paymentMethod === "Yappy")
+    .reduce((sum, s) => sum + (s.total || 0), 0);
+  
+  const efectivoTotal = salesList
+    .filter(s => s.paymentMethod === "Efectivo")
+    .reduce((sum, s) => sum + (s.total || 0), 0);
+  
+  const totalSales = yappyTotal + efectivoTotal;
+
+  if (totalYappy) totalYappy.textContent = currency.format(yappyTotal);
+  if (totalEfectivo) totalEfectivo.textContent = currency.format(efectivoTotal);
+  if (totalVentas) totalVentas.textContent = currency.format(totalSales);
 }
 
 function updateSaleItemOptions() {
@@ -1199,47 +1198,8 @@ if (financeToggleBtn) {
   });
 }
 
-if (financeBackBtn) {
-  financeBackBtn.addEventListener("click", () => {
-    setFinanceDashOpen(false);
-  });
-}
-
-if (capitalForm) {
-  capitalForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await saveCapital();
-  });
-}
-
-if (purchaseForm) {
-  purchaseForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await savePurchase();
-    await loadItems();
-    syncUI();
-  });
-
-  if (purchaseQuantity) {
-    purchaseQuantity.addEventListener("input", () => {
-      const qty = parseFloat(purchaseQuantity.value) || 0;
-      const cost = parseFloat(purchaseCostUnit.value) || 0;
-      purchaseTotalCost.value = (qty * cost).toFixed(2);
-    });
-  }
-
-  if (purchaseCostUnit) {
-    purchaseCostUnit.addEventListener("input", () => {
-      const qty = parseFloat(purchaseQuantity.value) || 0;
-      const cost = parseFloat(purchaseCostUnit.value) || 0;
-      purchaseTotalCost.value = (qty * cost).toFixed(2);
-    });
-  }
-}
-
 setSalesDashOpen(false);
 setWeeklyDashOpen(false);
-setFinanceDashOpen(false);
 
 if (userDisplay && username) {
   userDisplay.textContent = `Logged in as ${username}`;
@@ -1258,130 +1218,6 @@ if (logoutBtn) {
   });
 }
 
-// Finance Functions
-function setFinanceDashOpen(isOpen) {
-  if (!financeDash || !financeToggleBtn) {
-    return;
-  }
-  financeDash.classList.toggle("is-collapsed", !isOpen);
-  financeToggleBtn.setAttribute("aria-expanded", String(isOpen));
-  financeToggleBtn.textContent = isOpen ? "Ocultar Finanzas" : "Agregar Inversión";
-}
-
-function populatePurchaseItemSelect() {
-  if (!purchaseItemId) return;
-  purchaseItemId.innerHTML = '<option value="">-- Select a product --</option>';
-  items.forEach((item) => {
-    const option = document.createElement("option");
-    option.value = item.id;
-    option.textContent = item.name;
-    purchaseItemId.appendChild(option);
-  });
-}
-
-async function loadPurchases() {
-  purchases = await fetchJson(`${API_BASE}/purchases`);
-  renderPurchases();
-}
-
-function renderPurchases() {
-  if (!purchasesBody) return;
-  purchasesBody.innerHTML = purchases
-    .map(
-      (p) => `<tr>
-      <td>${escapeHtml(p.itemName)}</td>
-      <td>${p.quantity}</td>
-      <td>${currency.format(p.costUnit)}</td>
-      <td>${currency.format(p.totalCost)}</td>
-      <td>${formatDate(p.createdAt)}</td>
-    </tr>`
-    )
-    .join("");
-}
-
-async function saveCapital() {
-  const capital = parseFloat(capitalInput.value);
-  if (!capital || capital < 0) {
-    if (document.getElementById("capitalError")) {
-      document.getElementById("capitalError").textContent = "Please enter a valid capital amount";
-    }
-    return;
-  }
-
-  try {
-    await fetchJson(`${API_BASE}/config`, {
-      method: "POST",
-      body: JSON.stringify({ key: "initial_capital", value: capital }),
-    });
-    showToast("Capital saved successfully", "success");
-    await updateFinanceDashboard();
-  } catch (error) {
-    if (document.getElementById("capitalError")) {
-      document.getElementById("capitalError").textContent = error.message;
-    }
-  }
-}
-
-async function savePurchase() {
-  const itemId = purchaseItemId.value;
-  const quantity = Number(purchaseQuantity.value);
-  const costUnit = Number(purchaseCostUnit.value);
-
-  if (!itemId) {
-    document.getElementById("purchaseError").textContent = "Please select a product";
-    return;
-  }
-  if (quantity <= 0) {
-    document.getElementById("purchaseError").textContent = "Quantity must be greater than 0";
-    return;
-  }
-  if (costUnit < 0) {
-    document.getElementById("purchaseError").textContent = "Unit cost cannot be negative";
-    return;
-  }
-
-  try {
-    await fetchJson(`${API_BASE}/purchases`, {
-      method: "POST",
-      body: JSON.stringify({ itemId, quantity, costUnit }),
-    });
-    purchaseForm.reset();
-    await loadPurchases();
-    await updateFinanceDashboard();
-    showToast("Purchase registered successfully", "success");
-  } catch (error) {
-    document.getElementById("purchaseError").textContent = error.message;
-  }
-}
-
-async function updateFinanceDashboard() {
-  try {
-    const data = await fetchJson(`${API_BASE}/finance`);
-    if (financeInitialCapital) financeInitialCapital.textContent = currency.format(data.initialCapital);
-    if (financeTotalInvested) financeTotalInvested.textContent = currency.format(data.totalInvested);
-    if (financeTotalGain) financeTotalGain.textContent = currency.format(data.totalGain);
-    if (financeCapitalActual) financeCapitalActual.textContent = currency.format(data.capitalActual);
-    if (financeMargin) financeMargin.textContent = data.marginPercent.toFixed(2) + "%";
-    if (financeGainToday) financeGainToday.textContent = currency.format(data.gainToday);
-    if (financeGainWeek) financeGainWeek.textContent = currency.format(data.gainWeek);
-    if (financeGainMonth) financeGainMonth.textContent = currency.format(data.gainMonth);
-  } catch (error) {
-    console.error("Error updating finance dashboard:", error);
-  }
-}
-
-async function updateCashDashboard() {
-  try {
-    const data = await fetchJson(`${API_BASE}/cash`);
-    if (statCash) statCash.textContent = currency.format(data.totalCash);
-    if (financeInvestmentRecovered) financeInvestmentRecovered.textContent = currency.format(data.investmentRecovered);
-    if (financeTotalCash) financeTotalCash.textContent = currency.format(data.totalCash);
-    if (financeCashToday) financeCashToday.textContent = currency.format(data.cashToday);
-    if (financeCashWeek) financeCashWeek.textContent = currency.format(data.cashWeek);
-    if (financeCashMonth) financeCashMonth.textContent = currency.format(data.cashMonth);
-  } catch (error) {
-    console.error("Error updating cash dashboard:", error);
-  }
 }
 
 // Iniciar aplicación: cargar datos al abrir la página
@@ -1403,20 +1239,12 @@ async function initializeApp() {
     // Cargar items
     console.log("Loading items...");
     await loadItems();
-    populatePurchaseItemSelect();
     console.log("✓ Items loaded:", items.length);
     
     // Cargar ventas (esto también carga reporte y actualiza gráficos)
     console.log("Loading sales...");
     await loadSales();
     console.log("✓ Sales loaded:", sales.length);
-
-    // Cargar compras y finanzas
-    console.log("Loading purchases...");
-    await loadPurchases();
-    await updateFinanceDashboard();
-    await updateCashDashboard();
-    console.log("✓ Purchases, finance and cash loaded");
     
     console.log("=== App Ready ===");
   } catch (error) {

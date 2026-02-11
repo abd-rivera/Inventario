@@ -569,13 +569,20 @@ def bulk_items():
 def list_sales():
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT s.*, COALESCE(c.gain, 0) as gain FROM sales s LEFT JOIN cash c ON s.id = c.sale_id ORDER BY s.created_at DESC"
+            """
+            SELECT s.*, i.cost_unit
+            FROM sales s
+            LEFT JOIN items i ON s.item_id = i.id
+            ORDER BY s.created_at DESC
+            """
         ).fetchall()
     
     sales_list = []
     for row in rows:
         sale = row_to_sale(row)
-        sale["gain"] = round(row["gain"], 2) if row["gain"] else 0
+        cost_unit = row["cost_unit"] if row["cost_unit"] else 0
+        gain = (row["price"] - cost_unit) * row["quantity"]
+        sale["gain"] = round(gain, 2)
         sales_list.append(sale)
     
     return jsonify(sales_list)
@@ -695,13 +702,6 @@ def create_sale():
             (quantity, item_id),
         )
         
-        # Guardar ganancia en efectivo
-        cash_id = str(uuid.uuid4())
-        conn.execute(
-            "INSERT INTO cash (id, sale_id, gain, created_at) VALUES (?, ?, ?, ?)",
-            (cash_id, sale_id, gain, created_at),
-        )
-        
         conn.commit()
 
     return (
@@ -736,246 +736,15 @@ def delete_sale(sale_id):
             (sale["quantity"], sale["item_id"]),
         )
         conn.execute("DELETE FROM sales WHERE id = ?", (sale_id,))
-        conn.execute("DELETE FROM cash WHERE sale_id = ?", (sale_id,))
         conn.commit()
 
     return jsonify({"status": "deleted"})
 
 
-@app.route("/api/finance", methods=["GET"])
-@require_auth
-def get_finance():
-    with get_db() as conn:
-        # Capital inicial
-        config = conn.execute(
-            "SELECT value FROM config WHERE key = 'initial_capital'"
-        ).fetchone()
-        initial_capital = float(config["value"]) if config else 0
-
-        # Total invertido en compras
-        purchases = conn.execute(
-            "SELECT SUM(total_cost) as total FROM purchases"
-        ).fetchone()
-        total_invested = float(purchases["total"]) if purchases["total"] else 0
-
-        # Costo promedio por producto
-        items_data = conn.execute(
-            """
-            SELECT 
-                i.id,
-                i.name,
-                COALESCE(
-                    (SELECT SUM(cost_unit * quantity) FROM purchases WHERE item_id = i.id) / 
-                    NULLIF((SELECT SUM(quantity) FROM purchases WHERE item_id = i.id), 0),
-                    0
-                ) as cost_unit
-            FROM items i
-            """
-        ).fetchall()
-
-        # Calcular ganancia de ventas
-        total_gain = 0
-        for item in items_data:
-            sales_of_item = conn.execute(
-                "SELECT SUM(quantity) as qty_sold, i.price FROM sales s JOIN items i ON s.item_id = i.id WHERE s.item_id = ? GROUP BY s.item_id",
-                (item["id"],),
-            ).fetchone()
-            if sales_of_item:
-                qty_sold = sales_of_item["qty_sold"]
-                cost_unit = item["cost_unit"]
-                total_gain += (sales_of_item["price"] - cost_unit) * qty_sold
-
-        capital_actual = initial_capital + total_invested + total_gain
-        margin = (total_gain / capital_actual * 100) if capital_actual > 0 else 0
-
-        # Ganancia por período
-        today = now_local().date().isoformat()
-        week_ago = (now_local() - timedelta(days=7)).date().isoformat()
-        month_ago = (now_local() - timedelta(days=30)).date().isoformat()
-
-        gain_today = conn.execute(
-            f"""
-            SELECT COALESCE(SUM(s.total), 0) as revenue FROM sales s 
-            WHERE DATE(s.created_at) = '{today}'
-            """
-        ).fetchone()["revenue"]
-
-        gain_week = conn.execute(
-            f"""
-            SELECT COALESCE(SUM(s.total), 0) as revenue FROM sales s 
-            WHERE DATE(s.created_at) >= '{week_ago}'
-            """
-        ).fetchone()["revenue"]
-
-        gain_month = conn.execute(
-            f"""
-            SELECT COALESCE(SUM(s.total), 0) as revenue FROM sales s 
-            WHERE DATE(s.created_at) >= '{month_ago}'
-            """
-        ).fetchone()["revenue"]
-
-    return jsonify(
-        {
-            "initialCapital": initial_capital,
-            "totalInvested": total_invested,
-            "totalGain": total_gain,
-            "capitalActual": capital_actual,
-            "marginPercent": round(margin, 2),
-            "gainToday": gain_today,
-            "gainWeek": gain_week,
-            "gainMonth": gain_month,
-        }
-    )
 
 
-@app.route("/api/cash", methods=["GET"])
-@require_auth
-def get_cash():
-    """Obtener saldo total de efectivo ganado por ventas y capital recuperado"""
-    with get_db() as conn:
-        # Ganancia total de la billetera
-        result = conn.execute(
-            "SELECT COALESCE(SUM(gain), 0) as total_cash FROM cash"
-        ).fetchone()
-        
-        total_cash = float(result["total_cash"]) if result else 0
-        
-        # Inversión recuperada (suma de costos de productos vendidos)
-        investment_recovered = conn.execute(
-            """
-            SELECT COALESCE(SUM(i.cost_unit * s.quantity), 0) as recovered
-            FROM sales s
-            JOIN items i ON s.item_id = i.id
-            """
-        ).fetchone()["recovered"]
-        
-        # Ganancia por período
-        today = now_local().date().isoformat()
-        week_ago = (now_local() - timedelta(days=7)).date().isoformat()
-        month_ago = (now_local() - timedelta(days=30)).date().isoformat()
-        
-        cash_today = conn.execute(
-            f"""
-            SELECT COALESCE(SUM(gain), 0) as total FROM cash 
-            WHERE DATE(created_at) = '{today}'
-            """
-        ).fetchone()["total"]
-        
-        cash_week = conn.execute(
-            f"""
-            SELECT COALESCE(SUM(gain), 0) as total FROM cash 
-            WHERE DATE(created_at) >= '{week_ago}'
-            """
-        ).fetchone()["total"]
-        
-        cash_month = conn.execute(
-            f"""
-            SELECT COALESCE(SUM(gain), 0) as total FROM cash 
-            WHERE DATE(created_at) >= '{month_ago}'
-            """
-        ).fetchone()["total"]
-    
-    return jsonify(
-        {
-            "totalCash": round(total_cash, 2),
-            "investmentRecovered": round(investment_recovered, 2),
-            "cashToday": round(cash_today, 2),
-            "cashWeek": round(cash_week, 2),
-            "cashMonth": round(cash_month, 2),
-        }
-    )
 
 
-@app.route("/api/config", methods=["POST"])
-@require_auth
-def set_config():
-    payload = request.get_json()
-    key = payload.get("key")
-    value = payload.get("value")
-
-    if not key or value is None:
-        return jsonify({"error": "key and value required"}), 400
-
-    with get_db() as conn:
-        conn.execute("DELETE FROM config WHERE key = ?", (key,))
-        conn.execute(
-            "INSERT INTO config (key, value) VALUES (?, ?)",
-            (key, str(value)),
-        )
-        conn.commit()
-
-    return jsonify({"key": key, "value": value}), 201
-
-
-@app.route("/api/purchases", methods=["POST"])
-@require_auth
-def create_purchase():
-    payload = request.get_json(silent=True) or {}
-    item_id = payload.get("itemId")
-    quantity = to_int(payload.get("quantity"))
-    cost_unit = to_float(payload.get("costUnit"))
-
-    if not item_id or quantity <= 0 or cost_unit < 0:
-        return jsonify({"error": "Invalid purchase data."}), 400
-
-    total_cost = quantity * cost_unit
-    purchase_id = str(uuid.uuid4())
-    created_at = now_local().isoformat()
-
-    with get_db() as conn:
-        # Verificar que el item existe
-        item = conn.execute(
-            "SELECT * FROM items WHERE id = ?", (item_id,)
-        ).fetchone()
-        if not item:
-            return jsonify({"error": "Item not found."}), 404
-
-        # Agregar la compra
-        conn.execute(
-            "INSERT INTO purchases (id, item_id, quantity, cost_unit, total_cost, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (purchase_id, item_id, quantity, cost_unit, total_cost, created_at),
-        )
-        conn.commit()
-
-    return jsonify(
-        {
-            "id": purchase_id,
-            "itemId": item_id,
-            "quantity": quantity,
-            "costUnit": cost_unit,
-            "totalCost": total_cost,
-            "createdAt": created_at,
-        }
-    ), 201
-
-
-@app.route("/api/purchases", methods=["GET"])
-@require_auth
-def get_purchases():
-    with get_db() as conn:
-        purchases = conn.execute(
-            """
-            SELECT p.id, p.item_id, p.quantity, p.cost_unit, p.total_cost, p.created_at, i.name
-            FROM purchases p 
-            LEFT JOIN items i ON p.item_id = i.id 
-            ORDER BY p.created_at DESC
-            """
-        ).fetchall()
-
-    return jsonify(
-        [
-            {
-                "id": p["id"],
-                "itemId": p["item_id"],
-                "itemName": p["name"] or "Unknown Item",
-                "quantity": p["quantity"],
-                "costUnit": p["cost_unit"],
-                "totalCost": p["total_cost"],
-                "createdAt": p["created_at"],
-            }
-            for p in purchases
-        ]
-    )
 
 
 @app.route("/api/sales/<sale_id>/invoice", methods=["GET"])
