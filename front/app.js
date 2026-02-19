@@ -647,26 +647,6 @@ function setReportOnly(isOpen) {
   }
   setWeeklyDashOpen(isOpen);
 }
-
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const item = getFormData();
-  if (!item.name || !item.sku || !item.location) {
-    return;
-  }
-  try {
-    await saveItem(item);
-    resetForm();
-    syncUI();
-    showToast(item.id ? "Producto actualizado exitosamente" : "Producto agregado exitosamente", "success");
-  } catch (error) {
-    console.error(error);
-    showToast("Error al guardar. Verifica la conexión con el servidor.", "error");
-  }
-});
-
-
-cancelEditBtn.addEventListener("click", () => {
   resetForm();
 });
 
@@ -1228,6 +1208,14 @@ async function initializeApp() {
       userDisplay.textContent = `Logged in as ${username}`;
     }
 
+    // Registrar listener del formulario
+    if (form) {
+      form.addEventListener("submit", handleFormSubmit);
+      console.log("✓ Form listener registered");
+    } else {
+      console.error("❌ Form element not found!");
+    }
+
     // Cargar items
     console.log("Loading items...");
     await loadItems();
@@ -1242,6 +1230,25 @@ async function initializeApp() {
   } catch (error) {
     console.error("❌ Initialization error:", error);
     showToast("Error: " + error.message, "error");
+  }
+}
+
+async function handleFormSubmit(event) {
+  event.preventDefault();
+  console.log("Form submit intercepted");
+  const item = getFormData();
+  if (!item.name || !item.sku || !item.location) {
+    showToast("Nombre, SKU y ubicación son requeridos", "error");
+    return;
+  }
+  try {
+    await saveItem(item);
+    resetForm();
+    syncUI();
+    showToast(item.id ? "Producto actualizado exitosamente" : "Producto agregado exitosamente", "success");
+  } catch (error) {
+    console.error(error);
+    showToast("Error al guardar. Verifica la conexión con el servidor.", "error");
   }
 }
 
