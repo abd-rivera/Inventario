@@ -1190,14 +1190,6 @@ saleQuantity.addEventListener("input", updateSaleFromUnitPrice);
 salePriceInput.addEventListener("input", updateSaleFromUnitPrice);
 saleTotalInput.addEventListener("input", updateSaleFromTotal);
 
-// Finance event listeners
-if (financeToggleBtn) {
-  financeToggleBtn.addEventListener("click", () => {
-    const isOpen = !financeDash.classList.contains("is-collapsed");
-    setFinanceDashOpen(!isOpen);
-  });
-}
-
 setSalesDashOpen(false);
 setWeeklyDashOpen(false);
 

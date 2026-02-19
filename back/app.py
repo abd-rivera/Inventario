@@ -124,30 +124,6 @@ def init_db():
             )
             """
         )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS purchases (
-                id TEXT PRIMARY KEY,
-                item_id TEXT NOT NULL,
-                quantity INTEGER NOT NULL,
-                cost_unit REAL NOT NULL,
-                total_cost REAL NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (item_id) REFERENCES items (id)
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS cash (
-                id TEXT PRIMARY KEY,
-                sale_id TEXT NOT NULL,
-                gain REAL NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (sale_id) REFERENCES sales (id)
-            )
-            """
-        )
 
 
 def row_to_item(row):
