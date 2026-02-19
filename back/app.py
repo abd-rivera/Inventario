@@ -10,6 +10,16 @@ from flask import Flask, jsonify, request, send_from_directory, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
 from fpdf import FPDF
 
+# Detectar si estamos en Render con PostgreSQL
+DATABASE_URL = os.getenv("DATABASE_URL")
+USE_POSTGRES = DATABASE_URL is not None
+
+if USE_POSTGRES:
+    import psycopg2
+    import psycopg2.extras
+else:
+    import sqlite3
+
 BASE_DIR = os.path.dirname(__file__)
 FRONT_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "front"))
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -44,15 +54,104 @@ def format_invoice_datetime(value):
 
 
 def get_db():
-    os.makedirs(DATA_DIR, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    if USE_POSTGRES:
+        conn = psycopg2.connect(DATABASE_URL)
+        conn.autocommit = False
+        # Retornar un wrapper que proporciona execute() compatible
+        return PostgresConnectionWrapper(conn)
+    else:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+
+class PostgresConnectionWrapper:
+    """Wrapper que hace psycopg2 compatible con sqlite3"""
+    def __init__(self, conn):
+        self.conn = conn
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *args):
+        self.conn.close()
+    
+    def execute(self, query, params=None):
+        cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        if params:
+            cur.execute(query, params)
+        else:
+            cur.execute(query)
+        return PostgresCursor(cur, self.conn)
+    
+    def commit(self):
+        try:
+            self.conn.commit()
+        except:
+            pass
+    
+    def close(self):
+        self.conn.close()
+    
+    def rollback(self):
+        try:
+            self.conn.rollback()
+        except:
+            pass
+
+
+class PostgresCursor:
+    """Cursor wrapper para psycopg2 compatible con sqlite3"""
+    def __init__(self, cur, conn):
+        self.cur = cur
+        self.conn = conn
+    
+    def fetchone(self):
+        return self.cur.fetchone()
+    
+    def fetchall(self):
+        return self.cur.fetchall()
+    
+    def close(self):
+        self.cur.close()
+
+
+def execute_query(conn, query, params=None, fetch=False, fetch_one=False):
+    """Ejecutar query de forma agnóstica entre SQLite y PostgreSQL"""
+    try:
+        if params:
+            cur = conn.execute(query, params)
+        else:
+            cur = conn.execute(query)
+        if fetch_one:
+            result = cur.fetchone()
+            cur.close()
+            return result
+        elif fetch:
+            result = cur.fetchall()
+            cur.close()
+            return result
+        else:
+            conn.commit()
+            return None
+    except Exception as e:
+        print(f"Query error: {e}")
+        if USE_POSTGRES:
+            conn.rollback()
+        raise
 
 
 def init_db():
-    with get_db() as conn:
-        conn.execute(
+    conn = get_db()
+    try:
+        if USE_POSTGRES:
+            cur = conn.cursor()
+        else:
+            cur = conn.cursor()
+        
+        # Crear tablas base
+        cur.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
@@ -62,7 +161,7 @@ def init_db():
             )
             """
         )
-        conn.execute(
+        cur.execute(
             """
             CREATE TABLE IF NOT EXISTS sessions (
                 token TEXT PRIMARY KEY,
@@ -72,7 +171,7 @@ def init_db():
             )
             """
         )
-        conn.execute(
+        cur.execute(
             """
             CREATE TABLE IF NOT EXISTS items (
                 id TEXT PRIMARY KEY,
@@ -85,11 +184,12 @@ def init_db():
                 description TEXT,
                 image_url TEXT,
                 status TEXT,
+                cost_unit REAL DEFAULT 0,
                 updated_at TEXT NOT NULL
             )
             """
         )
-        conn.execute(
+        cur.execute(
             """
             CREATE TABLE IF NOT EXISTS sales (
                 id TEXT PRIMARY KEY,
@@ -103,20 +203,7 @@ def init_db():
             )
             """
         )
-
-        columns = {
-            row["name"]
-            for row in conn.execute("PRAGMA table_info(items)").fetchall()
-        }
-        if "description" not in columns:
-            conn.execute("ALTER TABLE items ADD COLUMN description TEXT")
-        if "image_url" not in columns:
-            conn.execute("ALTER TABLE items ADD COLUMN image_url TEXT")
-        if "status" not in columns:
-            conn.execute("ALTER TABLE items ADD COLUMN status TEXT")
-        if "cost_unit" not in columns:
-            conn.execute("ALTER TABLE items ADD COLUMN cost_unit REAL DEFAULT 0")
-        conn.execute(
+        cur.execute(
             """
             CREATE TABLE IF NOT EXISTS config (
                 key TEXT PRIMARY KEY,
@@ -124,6 +211,41 @@ def init_db():
             )
             """
         )
+        
+        # Para SQLite, agregar columnas faltantes si es necesario
+        if not USE_POSTGRES:
+            columns = {
+                row[1]
+                for row in cur.execute("PRAGMA table_info(items)").fetchall()
+            }
+            try:
+                if "description" not in columns:
+                    cur.execute("ALTER TABLE items ADD COLUMN description TEXT")
+            except: pass
+            try:
+                if "image_url" not in columns:
+                    cur.execute("ALTER TABLE items ADD COLUMN image_url TEXT")
+            except: pass
+            try:
+                if "status" not in columns:
+                    cur.execute("ALTER TABLE items ADD COLUMN status TEXT")
+            except: pass
+            try:
+                if "cost_unit" not in columns:
+                    cur.execute("ALTER TABLE items ADD COLUMN cost_unit REAL DEFAULT 0")
+            except: pass
+        
+        conn.commit()
+    except Exception as e:
+        print(f"Error initializing DB: {e}")
+        if not USE_POSTGRES:
+            conn.rollback()
+    finally:
+        if not USE_POSTGRES:
+            conn.close()
+        else:
+            conn.commit()
+            conn.close()
 
 
 def row_to_item(row):
