@@ -254,15 +254,27 @@ def cleanup_expired_sessions():
 
 @app.route("/")
 def index():
-    return send_from_directory(FRONT_DIR, "index.html")
+    response = send_from_directory(FRONT_DIR, "index.html")
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 
 @app.route("/<path:path>")
 def static_files(path):
     file_path = os.path.join(FRONT_DIR, path)
     if os.path.isfile(file_path):
-        return send_from_directory(FRONT_DIR, path)
-    return send_from_directory(FRONT_DIR, "index.html")
+        response = send_from_directory(FRONT_DIR, path)
+        # No cache for CSS, JS, HTML files
+        if path.endswith(('.css', '.js', '.html')):
+            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+        return response
+    response = send_from_directory(FRONT_DIR, "index.html")
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return response
 
 
 @app.route("/api/health")
