@@ -1,4 +1,4 @@
-const CACHE_NAME = 'plus-control-v1';
+const CACHE_NAME = 'plus-control-v2';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -9,8 +9,15 @@ const urlsToCache = [
   '/manifest.json'
 ];
 
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
 // Install service worker and cache files
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
@@ -20,13 +27,37 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Fetch from cache when offline
+// Fetch strategy: network-first for app shell, cache fallback for offline
 self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') {
+    return;
+  }
+
+  const requestUrl = new URL(event.request.url);
+  if (requestUrl.pathname.startsWith('/api/')) {
+    return;
+  }
+
+  const isAppShell =
+    event.request.mode === 'navigate' ||
+    requestUrl.pathname.endsWith('.html') ||
+    requestUrl.pathname.endsWith('.js') ||
+    requestUrl.pathname.endsWith('.css');
+
   event.respondWith(
-    caches.match(event.request)
-      .then((response) => {
-        // Return cached version or fetch from network
-        return response || fetch(event.request);
+    fetch(event.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const responseClone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+        }
+        return networkResponse;
+      })
+      .catch(() => {
+        if (isAppShell) {
+          return caches.match(event.request).then((response) => response || caches.match('/index.html'));
+        }
+        return caches.match(event.request);
       })
   );
 });
@@ -43,6 +74,6 @@ self.addEventListener('activate', (event) => {
           }
         })
       );
-    })
+    }).then(() => self.clients.claim())
   );
 });

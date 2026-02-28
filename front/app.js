@@ -647,8 +647,6 @@ function setReportOnly(isOpen) {
   }
   setWeeklyDashOpen(isOpen);
 }
-  resetForm();
-});
 
 inventoryBody.addEventListener("click", async (event) => {
   // Edición rápida de cantidad con doble clic
@@ -830,7 +828,6 @@ if (reportPrintBtn) {
 }
 
 if (backupBtn) {
-if (backupBtn) {
   backupBtn.addEventListener("click", async () => {
     try {
       const response = await fetch(`${API_BASE}/backup`, {
@@ -854,7 +851,6 @@ if (backupBtn) {
       showToast("Error al descargar backup. Intenta de nuevo.", "error");
     }
   });
-}
 }
 
 if (exportBtn) {
@@ -1190,8 +1186,6 @@ if (logoutBtn) {
   });
 }
 
-}
-
 // Iniciar aplicación: cargar datos al abrir la página
 async function initializeApp() {
   console.log("=== App Initialization Started ===");
@@ -1257,11 +1251,35 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/service-worker.js")
       .then((registration) => {
+        registration.update();
+
+        if (registration.waiting) {
+          registration.waiting.postMessage({ type: "SKIP_WAITING" });
+        }
+
+        registration.addEventListener("updatefound", () => {
+          const newWorker = registration.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener("statechange", () => {
+            if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+              newWorker.postMessage({ type: "SKIP_WAITING" });
+            }
+          });
+        });
+
         console.log("✓ Service Worker registered:", registration);
       })
       .catch((error) => {
         console.warn("Service Worker registration failed:", error);
       });
+
+    navigator.serviceWorker.getRegistrations().then((registrations) => {
+      registrations.forEach((registration) => registration.update());
+    });
+  });
+
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    window.location.reload();
   });
 }
 
