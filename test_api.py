@@ -1,5 +1,6 @@
 import requests
 import json
+import uuid
 
 print("=== TEST API LOCAL ===\n")
 
@@ -10,7 +11,15 @@ r = requests.post("http://localhost:5000/api/auth/login", json=login_data)
 
 if r.status_code == 401:
     print("   Usuario no existe, registrando...")
-    r = requests.post("http://localhost:5000/api/auth/register", json=login_data)
+    register_data = {
+        "username": login_data["username"],
+        "password": login_data["password"],
+        "email": f"admin-{uuid.uuid4().hex[:8]}@example.com"
+    }
+    r = requests.post("http://localhost:5000/api/auth/register", json=register_data)
+    if r.status_code == 201 and r.json().get("requiresVerification"):
+        print("   ⚠️ Registro requiere verificación de correo; usa login con usuario ya verificado para este test.")
+        exit(1)
 
 if r.status_code in [200, 201]:
     token = r.json()["token"]

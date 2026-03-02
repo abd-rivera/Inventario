@@ -16,3 +16,11 @@ services:
         value: back/app.py
       - key: APP_TZ
         value: America/Panama
+      - key: ALLOW_DEV_EMAIL_FALLBACK
+        value: "0"
+      - key: GMAIL_USER
+        value: "REPLACE_WITH_GMAIL_USER"
+      - key: GMAIL_APP_PASSWORD
+        value: "REPLACE_WITH_GMAIL_APP_PASSWORD"
+      - key: SMTP_FROM
+        value: "REPLACE_WITH_SMTP_FROM"

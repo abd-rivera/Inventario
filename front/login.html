@@ -75,6 +75,17 @@
             />
           </label>
           <label>
+            Correo
+            <input
+              id="registerEmail"
+              name="email"
+              type="email"
+              required
+              autocomplete="email"
+              placeholder="tu@correo.com"
+            />
+          </label>
+          <label>
             Contraseña
             <input
               id="registerPassword"
@@ -99,6 +110,29 @@
             />
           </label>
           <button type="submit" class="btn btn-primary btn-block">Crear Cuenta</button>
+        </form>
+
+        <form id="verifyForm" class="auth-form" hidden>
+          <p id="verifyError" class="form-error" aria-live="polite"></p>
+          <p class="auth-subtitle">Te enviamos un código a tu correo.</p>
+          <label>
+            Correo
+            <input id="verifyEmail" type="email" readonly />
+          </label>
+          <label>
+            Código de verificación
+            <input
+              id="verifyCode"
+              name="code"
+              type="text"
+              required
+              maxlength="6"
+              inputmode="numeric"
+              placeholder="123456"
+            />
+          </label>
+          <button type="submit" class="btn btn-primary btn-block">Verificar Correo</button>
+          <button id="resendCodeBtn" type="button" class="btn btn-ghost btn-block">Reenviar Código</button>
         </form>
       </div>
     </div>

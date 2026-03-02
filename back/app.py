@@ -1,7 +1,13 @@
 import os
 import sqlite3
 import uuid
+import importlib
+import hashlib
+import re
+import secrets
+import smtplib
 from datetime import datetime, timedelta
+from email.message import EmailMessage
 from functools import wraps
 from io import BytesIO
 from zoneinfo import ZoneInfo
@@ -13,12 +19,15 @@ from fpdf import FPDF
 # Detectar si estamos en Render con PostgreSQL
 DATABASE_URL = os.getenv("DATABASE_URL")
 USE_POSTGRES = DATABASE_URL is not None
+psycopg2 = None
+psycopg2_extras = None
 
 if USE_POSTGRES:
-    import psycopg2
-    import psycopg2.extras
-else:
-    import sqlite3
+    try:
+        psycopg2 = importlib.import_module("psycopg2")
+        psycopg2_extras = importlib.import_module("psycopg2.extras")
+    except ImportError:
+        USE_POSTGRES = False
 
 BASE_DIR = os.path.dirname(__file__)
 FRONT_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "front"))
@@ -27,10 +36,113 @@ DB_PATH = os.path.join(DATA_DIR, "inventory.db")
 
 app = Flask(__name__, static_folder=FRONT_DIR, static_url_path="")
 
+EMAIL_CODE_EXPIRY_MINUTES = 10
+EMAIL_RESEND_COOLDOWN_SECONDS = 60
+EMAIL_MAX_ATTEMPTS = 5
+
+
+def is_production_env():
+    app_env = (os.getenv("APP_ENV") or os.getenv("FLASK_ENV") or "").strip().lower()
+    on_render = (os.getenv("RENDER") or "").strip().lower() == "true"
+    return app_env == "production" or on_render
+
+
+def allow_dev_email_fallback():
+    default_value = "0" if is_production_env() else "1"
+    raw = (os.getenv("ALLOW_DEV_EMAIL_FALLBACK", default_value) or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
 
 def now_local():
     tz_name = os.getenv("APP_TZ", "America/Panama")
     return datetime.now(ZoneInfo(tz_name))
+
+
+def normalize_email(value):
+    return str(value or "").strip().lower()
+
+
+def is_valid_email(email):
+    return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email))
+
+
+def hash_email_code(user_id, code):
+    salt = os.getenv("AUTH_CODE_SALT", "inventario-dev-salt")
+    payload = f"{user_id}:{code}:{salt}".encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def generate_email_code():
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def parse_iso_datetime(value):
+    if not value:
+        return now_local()
+    try:
+        return datetime.fromisoformat(value)
+    except Exception:
+        return now_local()
+
+
+def send_verification_email(to_email, username, code):
+    gmail_user = os.getenv("GMAIL_USER")
+    gmail_app_password = os.getenv("GMAIL_APP_PASSWORD")
+
+    smtp_host = os.getenv("SMTP_HOST") or ("smtp.gmail.com" if gmail_user and gmail_app_password else None)
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER") or gmail_user
+    smtp_pass = os.getenv("SMTP_PASS") or gmail_app_password
+    smtp_from = os.getenv("SMTP_FROM") or smtp_user
+
+    if not smtp_host or not smtp_user or not smtp_pass or not smtp_from:
+        return False, (
+            "SMTP is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM "
+            "or use GMAIL_USER and GMAIL_APP_PASSWORD."
+        )
+
+    msg = EmailMessage()
+    msg["Subject"] = "Codigo de verificacion - Plus Control"
+    msg["From"] = smtp_from
+    msg["To"] = to_email
+    msg.set_content(
+        f"Hola {username},\n\n"
+        f"Tu codigo de verificacion es: {code}\n"
+        f"Este codigo expira en {EMAIL_CODE_EXPIRY_MINUTES} minutos.\n\n"
+        "Si no solicitaste esta cuenta, ignora este correo."
+    )
+
+    try:
+        if smtp_port == 465:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
+                server.login(smtp_user, smtp_pass)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(smtp_host, smtp_port) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_pass)
+                server.send_message(msg)
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
+def store_email_verification(conn, user_id, code):
+    now = now_local()
+    expires_at = (now + timedelta(minutes=EMAIL_CODE_EXPIRY_MINUTES)).isoformat()
+    resend_available_at = (now + timedelta(seconds=EMAIL_RESEND_COOLDOWN_SECONDS)).isoformat()
+    created_at = now.isoformat()
+    code_hash = hash_email_code(user_id, code)
+
+    conn.execute("DELETE FROM email_verifications WHERE user_id = ?", (user_id,))
+    conn.execute(
+        """
+        INSERT INTO email_verifications
+        (user_id, code_hash, expires_at, attempts, resend_available_at, created_at)
+        VALUES (?, ?, ?, 0, ?, ?)
+        """,
+        (user_id, code_hash, expires_at, resend_available_at, created_at),
+    )
 
 
 def pdf_safe(value, default="N/A"):
@@ -78,7 +190,7 @@ class PostgresConnectionWrapper:
         self.conn.close()
     
     def execute(self, query, params=None):
-        cur = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur = self.conn.cursor(cursor_factory=psycopg2_extras.RealDictCursor)
         if params:
             cur.execute(query, params)
         else:
@@ -156,8 +268,23 @@ def init_db():
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 username TEXT NOT NULL UNIQUE,
+                email TEXT UNIQUE,
                 password_hash TEXT NOT NULL,
+                email_verified INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS email_verifications (
+                user_id TEXT PRIMARY KEY,
+                code_hash TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                resend_available_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users (id)
             )
             """
         )
@@ -214,6 +341,21 @@ def init_db():
         
         # Para SQLite, agregar columnas faltantes si es necesario
         if not USE_POSTGRES:
+            user_columns = {
+                row[1]
+                for row in cur.execute("PRAGMA table_info(users)").fetchall()
+            }
+            try:
+                if "email" not in user_columns:
+                    cur.execute("ALTER TABLE users ADD COLUMN email TEXT")
+            except:
+                pass
+            try:
+                if "email_verified" not in user_columns:
+                    cur.execute("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1")
+            except:
+                pass
+
             columns = {
                 row[1]
                 for row in cur.execute("PRAGMA table_info(items)").fetchall()
@@ -234,6 +376,20 @@ def init_db():
                 if "cost_unit" not in columns:
                     cur.execute("ALTER TABLE items ADD COLUMN cost_unit REAL DEFAULT 0")
             except: pass
+        else:
+            try:
+                cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT")
+            except:
+                pass
+            try:
+                cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified INTEGER NOT NULL DEFAULT 1")
+            except:
+                pass
+
+        try:
+            cur.execute("UPDATE users SET email_verified = 1 WHERE email_verified IS NULL")
+        except:
+            pass
         
         conn.commit()
     except Exception as e:
@@ -408,10 +564,14 @@ def health():
 def register():
     payload = request.get_json(silent=True) or {}
     username = str(payload.get("username", "")).strip()
+    email = normalize_email(payload.get("email"))
     password = str(payload.get("password", "")).strip()
 
-    if not username or not password:
-        return jsonify({"error": "Username and password required."}), 400
+    if not username or not password or not email:
+        return jsonify({"error": "Username, email and password required."}), 400
+
+    if not is_valid_email(email):
+        return jsonify({"error": "Invalid email format."}), 400
 
     if len(password) < 4:
         return jsonify({"error": "Password must be at least 4 characters."}), 400
@@ -423,23 +583,157 @@ def register():
         if existing:
             return jsonify({"error": "Username already exists."}), 400
 
+        existing_email = conn.execute(
+            "SELECT id FROM users WHERE lower(email) = lower(?)", (email,)
+        ).fetchone()
+        if existing_email:
+            return jsonify({"error": "Email already exists."}), 400
+
         user_id = str(uuid.uuid4())
         password_hash = generate_password_hash(password)
         created_at = now_local().isoformat()
 
         conn.execute(
-            "INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)",
-            (user_id, username, password_hash, created_at),
+            "INSERT INTO users (id, username, email, password_hash, email_verified, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, username, email, password_hash, 0, created_at),
         )
 
+        code = generate_email_code()
+        store_email_verification(conn, user_id, code)
+
+        email_ok, email_error = send_verification_email(email, username, code)
+        conn.commit()
+
+        if not email_ok:
+            if allow_dev_email_fallback():
+                return jsonify(
+                    {
+                        "requiresVerification": True,
+                        "email": email,
+                        "username": username,
+                        "devCode": code,
+                        "warning": f"Email not sent in local/dev mode: {email_error}",
+                    }
+                ), 201
+            return jsonify({"error": f"Could not send verification email: {email_error}"}), 503
+
+    return jsonify({"requiresVerification": True, "email": email, "username": username}), 201
+
+
+@app.route("/api/auth/verify-email", methods=["POST"])
+def verify_email():
+    payload = request.get_json(silent=True) or {}
+    email = normalize_email(payload.get("email"))
+    code = str(payload.get("code", "")).strip()
+
+    if not email or not code:
+        return jsonify({"error": "Email and code are required."}), 400
+
+    with get_db() as conn:
+        user = conn.execute(
+            "SELECT id, username, email_verified FROM users WHERE lower(email) = lower(?)",
+            (email,),
+        ).fetchone()
+
+        if not user:
+            return jsonify({"error": "User not found."}), 404
+
+        if user["email_verified"] == 1:
+            token = str(uuid.uuid4())
+            created_at = now_local().isoformat()
+            conn.execute(
+                "INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)",
+                (token, user["id"], created_at),
+            )
+            conn.commit()
+            return jsonify({"token": token, "username": user["username"], "alreadyVerified": True})
+
+        verification = conn.execute(
+            "SELECT code_hash, expires_at, attempts FROM email_verifications WHERE user_id = ?",
+            (user["id"],),
+        ).fetchone()
+
+        if not verification:
+            return jsonify({"error": "Verification code not found. Request a new one."}), 404
+
+        if verification["attempts"] >= EMAIL_MAX_ATTEMPTS:
+            return jsonify({"error": "Too many attempts. Request a new code."}), 429
+
+        if parse_iso_datetime(verification["expires_at"]) < now_local():
+            return jsonify({"error": "Verification code expired. Request a new code."}), 400
+
+        if hash_email_code(user["id"], code) != verification["code_hash"]:
+            conn.execute(
+                "UPDATE email_verifications SET attempts = attempts + 1 WHERE user_id = ?",
+                (user["id"],),
+            )
+            conn.commit()
+            return jsonify({"error": "Invalid verification code."}), 400
+
+        conn.execute("UPDATE users SET email_verified = 1 WHERE id = ?", (user["id"],))
+        conn.execute("DELETE FROM email_verifications WHERE user_id = ?", (user["id"],))
+
         token = str(uuid.uuid4())
+        created_at = now_local().isoformat()
         conn.execute(
             "INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)",
-            (token, user_id, created_at),
+            (token, user["id"], created_at),
         )
         conn.commit()
 
-    return jsonify({"token": token, "username": username}), 201
+    return jsonify({"token": token, "username": user["username"]})
+
+
+@app.route("/api/auth/resend-code", methods=["POST"])
+def resend_code():
+    payload = request.get_json(silent=True) or {}
+    email = normalize_email(payload.get("email"))
+
+    if not email:
+        return jsonify({"error": "Email is required."}), 400
+
+    with get_db() as conn:
+        user = conn.execute(
+            "SELECT id, username, email_verified FROM users WHERE lower(email) = lower(?)",
+            (email,),
+        ).fetchone()
+
+        if not user:
+            return jsonify({"error": "User not found."}), 404
+
+        if user["email_verified"] == 1:
+            return jsonify({"error": "Email is already verified."}), 400
+
+        verification = conn.execute(
+            "SELECT resend_available_at FROM email_verifications WHERE user_id = ?",
+            (user["id"],),
+        ).fetchone()
+
+        if verification:
+            resend_at = parse_iso_datetime(verification["resend_available_at"])
+            now = now_local()
+            if resend_at > now:
+                wait_seconds = int((resend_at - now).total_seconds())
+                return jsonify({"error": "Please wait before requesting another code.", "waitSeconds": wait_seconds}), 429
+
+        code = generate_email_code()
+        store_email_verification(conn, user["id"], code)
+
+        email_ok, email_error = send_verification_email(email, user["username"], code)
+        conn.commit()
+
+        if not email_ok:
+            if allow_dev_email_fallback():
+                return jsonify(
+                    {
+                        "status": "sent-dev",
+                        "devCode": code,
+                        "warning": f"Email not sent in local/dev mode: {email_error}",
+                    }
+                )
+            return jsonify({"error": f"Could not send verification email: {email_error}"}), 503
+
+    return jsonify({"status": "sent"})
 
 
 @app.route("/api/auth/login", methods=["POST"])
@@ -453,11 +747,14 @@ def login():
 
     with get_db() as conn:
         user = conn.execute(
-            "SELECT id, password_hash FROM users WHERE username = ?", (username,)
+            "SELECT id, username, email, password_hash, email_verified FROM users WHERE username = ?", (username,)
         ).fetchone()
 
     if not user or not check_password_hash(user["password_hash"], password):
         return jsonify({"error": "Invalid username or password."}), 401
+
+    if user["email_verified"] != 1:
+        return jsonify({"error": "Email not verified.", "code": "EMAIL_NOT_VERIFIED", "email": user["email"]}), 403
 
     token = str(uuid.uuid4())
     created_at = now_local().isoformat()

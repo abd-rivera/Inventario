@@ -4,14 +4,58 @@ const loginTab = document.getElementById("loginTab");
 const registerTab = document.getElementById("registerTab");
 const loginForm = document.getElementById("loginForm");
 const registerForm = document.getElementById("registerForm");
+const verifyForm = document.getElementById("verifyForm");
 const loginError = document.getElementById("loginError");
 const registerError = document.getElementById("registerError");
+const verifyError = document.getElementById("verifyError");
 
 const loginUsername = document.getElementById("loginUsername");
 const loginPassword = document.getElementById("loginPassword");
 const registerUsername = document.getElementById("registerUsername");
+const registerEmail = document.getElementById("registerEmail");
 const registerPassword = document.getElementById("registerPassword");
 const registerPasswordConfirm = document.getElementById("registerPasswordConfirm");
+const verifyEmail = document.getElementById("verifyEmail");
+const verifyCode = document.getElementById("verifyCode");
+const resendCodeBtn = document.getElementById("resendCodeBtn");
+
+let pendingVerificationEmail = "";
+
+function clearErrors() {
+  loginError.textContent = "";
+  registerError.textContent = "";
+  verifyError.textContent = "";
+}
+
+function showLogin() {
+  loginTab.classList.add("active");
+  registerTab.classList.remove("active");
+  loginForm.style.display = "flex";
+  registerForm.style.display = "none";
+  verifyForm.style.display = "none";
+  clearErrors();
+}
+
+function showRegister() {
+  registerTab.classList.add("active");
+  loginTab.classList.remove("active");
+  registerForm.style.display = "flex";
+  loginForm.style.display = "none";
+  verifyForm.style.display = "none";
+  clearErrors();
+}
+
+function showVerify(email) {
+  pendingVerificationEmail = String(email || "").trim().toLowerCase();
+  verifyEmail.value = pendingVerificationEmail;
+  verifyCode.value = "";
+  loginTab.classList.remove("active");
+  registerTab.classList.remove("active");
+  loginForm.style.display = "none";
+  registerForm.style.display = "none";
+  verifyForm.style.display = "flex";
+  clearErrors();
+}
 
 // Check if already logged in
 const token = localStorage.getItem("authToken");
@@ -20,25 +64,14 @@ if (token) {
 }
 
 // Inicializar formularios
-loginForm.style.display = "flex";
-registerForm.style.display = "none";
+showLogin();
 
 loginTab.addEventListener("click", () => {
-  loginTab.classList.add("active");
-  registerTab.classList.remove("active");
-  loginForm.style.display = "flex";
-  registerForm.style.display = "none";
-  loginError.textContent = "";
-  registerError.textContent = "";
+  showLogin();
 });
 
 registerTab.addEventListener("click", () => {
-  registerTab.classList.add("active");
-  loginTab.classList.remove("active");
-  registerForm.style.display = "flex";
-  loginForm.style.display = "none";
-  loginError.textContent = "";
-  registerError.textContent = "";
+  showRegister();
 });
 
 loginForm.addEventListener("submit", async (event) => {
@@ -63,6 +96,11 @@ loginForm.addEventListener("submit", async (event) => {
     const data = await response.json();
 
     if (!response.ok) {
+      if (response.status === 403 && data.code === "EMAIL_NOT_VERIFIED" && data.email) {
+        showVerify(data.email);
+        verifyError.textContent = "Tu correo no está verificado. Ingresa el código enviado.";
+        return;
+      }
       loginError.textContent = data.error || "Login failed.";
       return;
     }
@@ -81,10 +119,11 @@ registerForm.addEventListener("submit", async (event) => {
   registerError.textContent = "";
 
   const username = registerUsername.value.trim();
+  const email = registerEmail.value.trim().toLowerCase();
   const password = registerPassword.value.trim();
   const passwordConfirm = registerPasswordConfirm.value.trim();
 
-  if (!username || !password || !passwordConfirm) {
+  if (!username || !email || !password || !passwordConfirm) {
     registerError.textContent = "Please fill in all fields.";
     return;
   }
@@ -103,7 +142,7 @@ registerForm.addEventListener("submit", async (event) => {
     const response = await fetch(`${API_BASE}/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, email, password }),
     });
 
     const data = await response.json();
@@ -113,11 +152,92 @@ registerForm.addEventListener("submit", async (event) => {
       return;
     }
 
+    if (data.requiresVerification) {
+      showVerify(data.email || email);
+      if (data.devCode) {
+        verifyError.textContent = `Modo local: usa este código ${data.devCode}`;
+      } else {
+        verifyError.textContent = "Revisa tu correo e ingresa el código de verificación.";
+      }
+      return;
+    }
+
+    registerError.textContent = "Cuenta creada, pero falta validación por correo.";
+  } catch (error) {
+    console.error(error);
+    registerError.textContent = "Cannot reach server.";
+  }
+});
+
+verifyForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  verifyError.textContent = "";
+
+  const email = verifyEmail.value.trim().toLowerCase();
+  const code = verifyCode.value.trim();
+
+  if (!email || !code) {
+    verifyError.textContent = "Email and code are required.";
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}/auth/verify-email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, code }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      verifyError.textContent = data.error || "Verification failed.";
+      return;
+    }
+
     localStorage.setItem("authToken", data.token);
     localStorage.setItem("username", data.username);
     window.location.href = "/";
   } catch (error) {
     console.error(error);
-    registerError.textContent = "Cannot reach server.";
+    verifyError.textContent = "Cannot reach server.";
+  }
+});
+
+resendCodeBtn.addEventListener("click", async () => {
+  verifyError.textContent = "";
+  const email = (verifyEmail.value || pendingVerificationEmail).trim().toLowerCase();
+
+  if (!email) {
+    verifyError.textContent = "No verification email found.";
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}/auth/resend-code`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      if (response.status === 429 && typeof data.waitSeconds === "number") {
+        verifyError.textContent = `Espera ${data.waitSeconds}s para reenviar.`;
+        return;
+      }
+      verifyError.textContent = data.error || "Could not resend code.";
+      return;
+    }
+
+    if (data.devCode) {
+      verifyError.textContent = `Modo local: nuevo código ${data.devCode}`;
+    } else {
+      verifyError.textContent = "Código reenviado. Revisa tu correo.";
+    }
+  } catch (error) {
+    console.error(error);
+    verifyError.textContent = "Cannot reach server.";
   }
 });
