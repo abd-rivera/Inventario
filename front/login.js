@@ -107,7 +107,11 @@ loginForm.addEventListener("submit", async (event) => {
     if (!response.ok) {
       if (response.status === 403 && data.code === "EMAIL_NOT_VERIFIED" && data.email) {
         showVerify(data.email);
-        verifyError.textContent = "Tu correo no está verificado. Ingresa el código enviado.";
+        if (data.devCode) {
+          verifyError.textContent = `Modo local: usa este código ${data.devCode}`;
+        } else {
+          verifyError.textContent = data.error || "Tu correo no está verificado. Te enviamos un nuevo código.";
+        }
         return;
       }
       loginError.textContent = data.error || "Login failed.";

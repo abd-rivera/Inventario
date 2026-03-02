@@ -580,17 +580,65 @@ def register():
         return jsonify({"error": "Password must be at least 4 characters."}), 400
 
     with get_db() as conn:
-        existing = conn.execute(
-            "SELECT id FROM users WHERE username = ?", (username,)
+        existing_username = conn.execute(
+            "SELECT id, email, email_verified FROM users WHERE username = ?", (username,)
         ).fetchone()
-        if existing:
-            return jsonify({"error": "Username already exists."}), 400
+        if existing_username:
+            if existing_username["email_verified"] == 1:
+                return jsonify({"error": "Username already exists."}), 400
+            existing_user_email = normalize_email(existing_username["email"])
+            if existing_user_email != email:
+                return jsonify({"error": "Username already exists with a different email."}), 400
+
+            user_id = existing_username["id"]
+            code = generate_email_code()
+            store_email_verification(conn, user_id, code)
+            conn.commit()
+
+            email_ok, email_error = send_verification_email(email, username, code)
+            if not email_ok:
+                if allow_dev_email_fallback():
+                    return jsonify(
+                        {
+                            "requiresVerification": True,
+                            "email": email,
+                            "username": username,
+                            "devCode": code,
+                            "warning": f"Email not sent in local/dev mode: {email_error}",
+                        }
+                    ), 200
+                return jsonify({"error": f"Could not send verification email: {email_error}"}), 503
+
+            return jsonify({"requiresVerification": True, "email": email, "username": username}), 200
 
         existing_email = conn.execute(
-            "SELECT id FROM users WHERE lower(email) = lower(?)", (email,)
+            "SELECT id, username, email_verified FROM users WHERE lower(email) = lower(?)", (email,)
         ).fetchone()
         if existing_email:
-            return jsonify({"error": "Email already exists."}), 400
+            if existing_email["email_verified"] == 1:
+                return jsonify({"error": "Email already exists."}), 400
+
+            user_id = existing_email["id"]
+            username = existing_email["username"]
+            code = generate_email_code()
+            store_email_verification(conn, user_id, code)
+            conn.commit()
+
+            email_ok, email_error = send_verification_email(email, username, code)
+            if not email_ok:
+                if allow_dev_email_fallback():
+                    return jsonify(
+                        {
+                            "requiresVerification": True,
+                            "email": email,
+                            "username": username,
+                            "devCode": code,
+                            "warning": f"Email not sent in local/dev mode: {email_error}",
+                        }
+                    ), 200
+                return jsonify({"error": f"Could not send verification email: {email_error}"}), 503
+
+            return jsonify({"requiresVerification": True, "email": email, "username": username}), 200
 
         user_id = str(uuid.uuid4())
         password_hash = generate_password_hash(password)
@@ -757,7 +805,38 @@ def login():
         return jsonify({"error": "Invalid username or password."}), 401
 
     if user["email_verified"] != 1:
-        return jsonify({"error": "Email not verified.", "code": "EMAIL_NOT_VERIFIED", "email": user["email"]}), 403
+        verification_code = generate_email_code()
+        with get_db() as conn:
+            store_email_verification(conn, user["id"], verification_code)
+            conn.commit()
+
+        email_ok, email_error = send_verification_email(user["email"], user["username"], verification_code)
+        if not email_ok:
+            if allow_dev_email_fallback():
+                return jsonify(
+                    {
+                        "error": "Email not verified.",
+                        "code": "EMAIL_NOT_VERIFIED",
+                        "email": user["email"],
+                        "devCode": verification_code,
+                        "warning": f"Email not sent in local/dev mode: {email_error}",
+                    }
+                ), 403
+            return jsonify(
+                {
+                    "error": f"Email not verified. Could not send verification code: {email_error}",
+                    "code": "EMAIL_NOT_VERIFIED",
+                    "email": user["email"],
+                }
+            ), 403
+
+        return jsonify(
+            {
+                "error": "Email not verified. We sent you a new verification code.",
+                "code": "EMAIL_NOT_VERIFIED",
+                "email": user["email"],
+            }
+        ), 403
 
     token = str(uuid.uuid4())
     created_at = now_local().isoformat()
