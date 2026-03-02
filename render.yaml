@@ -19,8 +19,8 @@ services:
       - key: ALLOW_DEV_EMAIL_FALLBACK
         value: "0"
       - key: GMAIL_USER
-        value: "REPLACE_WITH_GMAIL_USER"
+        sync: false
       - key: GMAIL_APP_PASSWORD
-        value: "REPLACE_WITH_GMAIL_APP_PASSWORD"
+        sync: false
       - key: SMTP_FROM
-        value: "REPLACE_WITH_SMTP_FROM"
+        sync: false
