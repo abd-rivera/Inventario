@@ -4,7 +4,7 @@ services:
     env: python
     plan: free
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "python back/app.py"
+    startCommand: "gunicorn back.app:app --workers 1 --threads 4 --timeout 120"
     disk:
       name: plus-control-data
       mountPath: /opt/render/project/src/back/data

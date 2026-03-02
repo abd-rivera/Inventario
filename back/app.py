@@ -173,8 +173,11 @@ def get_db():
         return PostgresConnectionWrapper(conn)
     else:
         os.makedirs(DATA_DIR, exist_ok=True)
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=30)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout = 30000")
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
         return conn
 
 
@@ -600,22 +603,22 @@ def register():
 
         code = generate_email_code()
         store_email_verification(conn, user_id, code)
-
-        email_ok, email_error = send_verification_email(email, username, code)
         conn.commit()
 
-        if not email_ok:
-            if allow_dev_email_fallback():
-                return jsonify(
-                    {
-                        "requiresVerification": True,
-                        "email": email,
-                        "username": username,
-                        "devCode": code,
-                        "warning": f"Email not sent in local/dev mode: {email_error}",
-                    }
-                ), 201
-            return jsonify({"error": f"Could not send verification email: {email_error}"}), 503
+    email_ok, email_error = send_verification_email(email, username, code)
+
+    if not email_ok:
+        if allow_dev_email_fallback():
+            return jsonify(
+                {
+                    "requiresVerification": True,
+                    "email": email,
+                    "username": username,
+                    "devCode": code,
+                    "warning": f"Email not sent in local/dev mode: {email_error}",
+                }
+            ), 201
+        return jsonify({"error": f"Could not send verification email: {email_error}"}), 503
 
     return jsonify({"requiresVerification": True, "email": email, "username": username}), 201
 
@@ -718,20 +721,20 @@ def resend_code():
 
         code = generate_email_code()
         store_email_verification(conn, user["id"], code)
-
-        email_ok, email_error = send_verification_email(email, user["username"], code)
         conn.commit()
 
-        if not email_ok:
-            if allow_dev_email_fallback():
-                return jsonify(
-                    {
-                        "status": "sent-dev",
-                        "devCode": code,
-                        "warning": f"Email not sent in local/dev mode: {email_error}",
-                    }
-                )
-            return jsonify({"error": f"Could not send verification email: {email_error}"}), 503
+    email_ok, email_error = send_verification_email(email, user["username"], code)
+
+    if not email_ok:
+        if allow_dev_email_fallback():
+            return jsonify(
+                {
+                    "status": "sent-dev",
+                    "devCode": code,
+                    "warning": f"Email not sent in local/dev mode: {email_error}",
+                }
+            )
+        return jsonify({"error": f"Could not send verification email: {email_error}"}), 503
 
     return jsonify({"status": "sent"})
 
@@ -1220,6 +1223,8 @@ def get_invoice(sale_id):
         )
 
 
+init_db()
+
+
 if __name__ == "__main__":
-    init_db()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=not is_production_env())
