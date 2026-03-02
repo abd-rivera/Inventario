@@ -21,6 +21,15 @@ const resendCodeBtn = document.getElementById("resendCodeBtn");
 
 let pendingVerificationEmail = "";
 
+async function readApiPayload(response) {
+  const raw = await response.text();
+  try {
+    return JSON.parse(raw || "{}");
+  } catch {
+    return { error: raw || `HTTP ${response.status}` };
+  }
+}
+
 function clearErrors() {
   loginError.textContent = "";
   registerError.textContent = "";
@@ -93,7 +102,7 @@ loginForm.addEventListener("submit", async (event) => {
       body: JSON.stringify({ username, password }),
     });
 
-    const data = await response.json();
+    const data = await readApiPayload(response);
 
     if (!response.ok) {
       if (response.status === 403 && data.code === "EMAIL_NOT_VERIFIED" && data.email) {
@@ -110,7 +119,7 @@ loginForm.addEventListener("submit", async (event) => {
     window.location.href = "/";
   } catch (error) {
     console.error(error);
-    loginError.textContent = "Cannot reach server.";
+    loginError.textContent = "No se pudo conectar con el servidor.";
   }
 });
 
@@ -145,7 +154,7 @@ registerForm.addEventListener("submit", async (event) => {
       body: JSON.stringify({ username, email, password }),
     });
 
-    const data = await response.json();
+    const data = await readApiPayload(response);
 
     if (!response.ok) {
       registerError.textContent = data.error || "Registration failed.";
@@ -165,7 +174,7 @@ registerForm.addEventListener("submit", async (event) => {
     registerError.textContent = "Cuenta creada, pero falta validación por correo.";
   } catch (error) {
     console.error(error);
-    registerError.textContent = "Cannot reach server.";
+    registerError.textContent = "No se pudo conectar con el servidor.";
   }
 });
 
@@ -188,7 +197,7 @@ verifyForm.addEventListener("submit", async (event) => {
       body: JSON.stringify({ email, code }),
     });
 
-    const data = await response.json();
+    const data = await readApiPayload(response);
 
     if (!response.ok) {
       verifyError.textContent = data.error || "Verification failed.";
@@ -200,7 +209,7 @@ verifyForm.addEventListener("submit", async (event) => {
     window.location.href = "/";
   } catch (error) {
     console.error(error);
-    verifyError.textContent = "Cannot reach server.";
+    verifyError.textContent = "No se pudo conectar con el servidor.";
   }
 });
 
@@ -220,7 +229,7 @@ resendCodeBtn.addEventListener("click", async () => {
       body: JSON.stringify({ email }),
     });
 
-    const data = await response.json();
+    const data = await readApiPayload(response);
 
     if (!response.ok) {
       if (response.status === 429 && typeof data.waitSeconds === "number") {
@@ -238,6 +247,6 @@ resendCodeBtn.addEventListener("click", async () => {
     }
   } catch (error) {
     console.error(error);
-    verifyError.textContent = "Cannot reach server.";
+    verifyError.textContent = "No se pudo conectar con el servidor.";
   }
 });
