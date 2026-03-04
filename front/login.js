@@ -36,21 +36,27 @@ function clearErrors() {
   verifyError.textContent = "";
 }
 
+function setFormVisibility(loginVisible, registerVisible, verifyVisible) {
+  loginForm.hidden = !loginVisible;
+  registerForm.hidden = !registerVisible;
+  verifyForm.hidden = !verifyVisible;
+
+  loginForm.style.display = loginVisible ? "flex" : "none";
+  registerForm.style.display = registerVisible ? "flex" : "none";
+  verifyForm.style.display = verifyVisible ? "flex" : "none";
+}
+
 function showLogin() {
   loginTab.classList.add("active");
   registerTab.classList.remove("active");
-  loginForm.style.display = "flex";
-  registerForm.style.display = "none";
-  verifyForm.style.display = "none";
+  setFormVisibility(true, false, false);
   clearErrors();
 }
 
 function showRegister() {
   registerTab.classList.add("active");
   loginTab.classList.remove("active");
-  registerForm.style.display = "flex";
-  loginForm.style.display = "none";
-  verifyForm.style.display = "none";
+  setFormVisibility(false, true, false);
   clearErrors();
 }
 
@@ -60,9 +66,7 @@ function showVerify(email) {
   verifyCode.value = "";
   loginTab.classList.remove("active");
   registerTab.classList.remove("active");
-  loginForm.style.display = "none";
-  registerForm.style.display = "none";
-  verifyForm.style.display = "flex";
+  setFormVisibility(false, false, true);
   clearErrors();
 }
 

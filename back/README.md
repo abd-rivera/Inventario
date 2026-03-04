@@ -23,6 +23,19 @@ Set these environment variables to send real emails:
 - `SMTP_PASS`
 - `SMTP_FROM`
 
+You can define them in a `.env` file (supported automatically) either in:
+
+- `back/.env`
+- project root `.env`
+
+Example `.env` for Gmail app password:
+
+- `GMAIL_USER=tu_correo@gmail.com`
+- `GMAIL_APP_PASSWORD=tu_app_password_16_chars`
+- `SMTP_FROM=tu_correo@gmail.com`
+- `SMTP_PORT=587`
+- `ALLOW_DEV_EMAIL_FALLBACK=0`
+
 Optional:
 
 - `AUTH_CODE_SALT` (extra hash salt for OTP codes)

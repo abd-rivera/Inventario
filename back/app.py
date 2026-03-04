@@ -6,6 +6,7 @@ import hashlib
 import re
 import secrets
 import smtplib
+import ssl
 from datetime import datetime, timedelta
 from email.message import EmailMessage
 from functools import wraps
@@ -15,6 +16,11 @@ from zoneinfo import ZoneInfo
 from flask import Flask, jsonify, request, send_from_directory, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
 from fpdf import FPDF
+
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
 
 # Detectar si estamos en Render con PostgreSQL
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -33,6 +39,10 @@ BASE_DIR = os.path.dirname(__file__)
 FRONT_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "front"))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 DB_PATH = os.path.join(DATA_DIR, "inventory.db")
+
+if load_dotenv:
+    load_dotenv(os.path.join(BASE_DIR, ".env"), override=False)
+    load_dotenv(os.path.join(os.path.dirname(BASE_DIR), ".env"), override=False)
 
 app = Flask(__name__, static_folder=FRONT_DIR, static_url_path="")
 
@@ -86,14 +96,21 @@ def parse_iso_datetime(value):
 
 
 def send_verification_email(to_email, username, code):
-    gmail_user = os.getenv("GMAIL_USER")
-    gmail_app_password = os.getenv("GMAIL_APP_PASSWORD")
+    gmail_user = (os.getenv("GMAIL_USER") or "").strip()
+    gmail_app_password = (os.getenv("GMAIL_APP_PASSWORD") or "").strip()
 
-    smtp_host = os.getenv("SMTP_HOST") or ("smtp.gmail.com" if gmail_user and gmail_app_password else None)
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
-    smtp_user = os.getenv("SMTP_USER") or gmail_user
-    smtp_pass = os.getenv("SMTP_PASS") or gmail_app_password
-    smtp_from = os.getenv("SMTP_FROM") or smtp_user
+    smtp_host = (os.getenv("SMTP_HOST") or "").strip() or (
+        "smtp.gmail.com" if gmail_user and gmail_app_password else None
+    )
+    smtp_port_raw = (os.getenv("SMTP_PORT") or "587").strip()
+    try:
+        smtp_port = int(smtp_port_raw)
+    except ValueError:
+        return False, f"Invalid SMTP_PORT value: '{smtp_port_raw}'. Use 587 or 465."
+
+    smtp_user = (os.getenv("SMTP_USER") or "").strip() or gmail_user
+    smtp_pass = (os.getenv("SMTP_PASS") or "").strip() or gmail_app_password
+    smtp_from = (os.getenv("SMTP_FROM") or "").strip() or smtp_user
 
     if not smtp_host or not smtp_user or not smtp_pass or not smtp_from:
         return False, (
@@ -113,13 +130,17 @@ def send_verification_email(to_email, username, code):
     )
 
     try:
+        timeout_seconds = 20
         if smtp_port == 465:
-            with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=timeout_seconds) as server:
+                server.ehlo()
                 server.login(smtp_user, smtp_pass)
                 server.send_message(msg)
         else:
-            with smtplib.SMTP(smtp_host, smtp_port) as server:
-                server.starttls()
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=timeout_seconds) as server:
+                server.ehlo()
+                server.starttls(context=ssl.create_default_context())
+                server.ehlo()
                 server.login(smtp_user, smtp_pass)
                 server.send_message(msg)
         return True, None
