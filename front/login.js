@@ -179,7 +179,14 @@ registerForm.addEventListener("submit", async (event) => {
       return;
     }
 
-    registerError.textContent = "Cuenta creada, pero falta validación por correo.";
+    if (data.token) {
+      localStorage.setItem("authToken", data.token);
+      localStorage.setItem("username", data.username || username);
+      window.location.href = "/";
+      return;
+    }
+
+    registerError.textContent = data.message || "Cuenta creada. Ahora inicia sesión.";
   } catch (error) {
     console.error(error);
     registerError.textContent = "No se pudo conectar con el servidor.";

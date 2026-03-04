@@ -63,6 +63,12 @@ def allow_dev_email_fallback():
     return raw in {"1", "true", "yes", "on"}
 
 
+def require_email_verification():
+    default_value = "1" if is_production_env() else "0"
+    raw = (os.getenv("REQUIRE_EMAIL_VERIFICATION", default_value) or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def now_local():
     tz_name = os.getenv("APP_TZ", "America/Panama")
     return datetime.now(ZoneInfo(tz_name))
@@ -600,6 +606,37 @@ def register():
     if len(password) < 4:
         return jsonify({"error": "Password must be at least 4 characters."}), 400
 
+    if not require_email_verification():
+        user_id = str(uuid.uuid4())
+        password_hash = generate_password_hash(password)
+        created_at = now_local().isoformat()
+        token = str(uuid.uuid4())
+
+        with get_db() as conn:
+            existing_username = conn.execute(
+                "SELECT id FROM users WHERE username = ?", (username,)
+            ).fetchone()
+            if existing_username:
+                return jsonify({"error": "Username already exists."}), 400
+
+            existing_email = conn.execute(
+                "SELECT id FROM users WHERE lower(email) = lower(?)", (email,)
+            ).fetchone()
+            if existing_email:
+                return jsonify({"error": "Email already exists."}), 400
+
+            conn.execute(
+                "INSERT INTO users (id, username, email, password_hash, email_verified, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, username, email, password_hash, 1, created_at),
+            )
+            conn.execute(
+                "INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)",
+                (token, user_id, created_at),
+            )
+            conn.commit()
+
+        return jsonify({"token": token, "username": username, "requiresVerification": False}), 201
+
     with get_db() as conn:
         existing_username = conn.execute(
             "SELECT id, email, email_verified FROM users WHERE username = ?", (username,)
@@ -824,6 +861,11 @@ def login():
 
     if not user or not check_password_hash(user["password_hash"], password):
         return jsonify({"error": "Invalid username or password."}), 401
+
+    if user["email_verified"] != 1 and not require_email_verification():
+        with get_db() as conn:
+            conn.execute("UPDATE users SET email_verified = 1 WHERE id = ?", (user["id"],))
+            conn.commit()
 
     if user["email_verified"] != 1:
         verification_code = generate_email_code()
