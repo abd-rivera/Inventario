@@ -64,9 +64,9 @@ def allow_dev_email_fallback():
 
 
 def require_email_verification():
-    default_value = "1" if is_production_env() else "0"
-    raw = (os.getenv("REQUIRE_EMAIL_VERIFICATION", default_value) or "").strip().lower()
-    return raw in {"1", "true", "yes", "on"}
+    # Temporary global bypass requested: disable OTP/email verification.
+    # Keeping the function allows easy re-enable later from one place.
+    return False
 
 
 def allow_auto_verify_on_email_failure():
