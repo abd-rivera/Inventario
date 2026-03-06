@@ -40,6 +40,7 @@ Optional:
 
 - `AUTH_CODE_SALT` (extra hash salt for OTP codes)
 - `APP_TZ` (default: `America/Panama`)
+- `ALLOW_AUTO_VERIFY_ON_EMAIL_FAILURE` (default `1` in local/dev, `0` in production)
 
 ### Gmail real (recommended for local MVP)
 
@@ -70,3 +71,9 @@ Override explicitly with:
 
 - `ALLOW_DEV_EMAIL_FALLBACK=1` (enable)
 - `ALLOW_DEV_EMAIL_FALLBACK=0` (disable)
+
+If you prefer to avoid OTP blocking local testing when SMTP/network fails,
+you can keep auto-verify fallback enabled:
+
+- `ALLOW_AUTO_VERIFY_ON_EMAIL_FAILURE=1` (enable)
+- `ALLOW_AUTO_VERIFY_ON_EMAIL_FAILURE=0` (disable)

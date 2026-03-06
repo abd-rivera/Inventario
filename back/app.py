@@ -69,6 +69,16 @@ def require_email_verification():
     return raw in {"1", "true", "yes", "on"}
 
 
+def allow_auto_verify_on_email_failure():
+    """Allow local/dev to continue when SMTP/network is unavailable.
+
+    In production this remains disabled unless explicitly enabled.
+    """
+    default_value = "0" if is_production_env() else "1"
+    raw = (os.getenv("ALLOW_AUTO_VERIFY_ON_EMAIL_FAILURE", default_value) or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def now_local():
     tz_name = os.getenv("APP_TZ", "America/Panama")
     return datetime.now(ZoneInfo(tz_name))
@@ -170,6 +180,16 @@ def store_email_verification(conn, user_id, code):
         """,
         (user_id, code_hash, expires_at, resend_available_at, created_at),
     )
+
+
+def create_session(conn, user_id):
+    token = str(uuid.uuid4())
+    created_at = now_local().isoformat()
+    conn.execute(
+        "INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)",
+        (token, user_id, created_at),
+    )
+    return token
 
 
 def pdf_safe(value, default="N/A"):
@@ -665,6 +685,19 @@ def register():
                             "warning": f"Email not sent in local/dev mode: {email_error}",
                         }
                     ), 200
+                if allow_auto_verify_on_email_failure():
+                    conn.execute("UPDATE users SET email_verified = 1 WHERE id = ?", (user_id,))
+                    token = create_session(conn, user_id)
+                    conn.execute("DELETE FROM email_verifications WHERE user_id = ?", (user_id,))
+                    conn.commit()
+                    return jsonify(
+                        {
+                            "token": token,
+                            "username": username,
+                            "requiresVerification": False,
+                            "warning": f"Auto-verified in local/dev because email could not be sent: {email_error}",
+                        }
+                    ), 200
                 return jsonify({"error": f"Could not send verification email: {email_error}"}), 503
 
             return jsonify({"requiresVerification": True, "email": email, "username": username}), 200
@@ -692,6 +725,19 @@ def register():
                             "username": username,
                             "devCode": code,
                             "warning": f"Email not sent in local/dev mode: {email_error}",
+                        }
+                    ), 200
+                if allow_auto_verify_on_email_failure():
+                    conn.execute("UPDATE users SET email_verified = 1 WHERE id = ?", (user_id,))
+                    token = create_session(conn, user_id)
+                    conn.execute("DELETE FROM email_verifications WHERE user_id = ?", (user_id,))
+                    conn.commit()
+                    return jsonify(
+                        {
+                            "token": token,
+                            "username": username,
+                            "requiresVerification": False,
+                            "warning": f"Auto-verified in local/dev because email could not be sent: {email_error}",
                         }
                     ), 200
                 return jsonify({"error": f"Could not send verification email: {email_error}"}), 503
@@ -724,6 +770,20 @@ def register():
                     "warning": f"Email not sent in local/dev mode: {email_error}",
                 }
             ), 201
+        if allow_auto_verify_on_email_failure():
+            with get_db() as conn:
+                conn.execute("UPDATE users SET email_verified = 1 WHERE id = ?", (user_id,))
+                token = create_session(conn, user_id)
+                conn.execute("DELETE FROM email_verifications WHERE user_id = ?", (user_id,))
+                conn.commit()
+            return jsonify(
+                {
+                    "token": token,
+                    "username": username,
+                    "requiresVerification": False,
+                    "warning": f"Auto-verified in local/dev because email could not be sent: {email_error}",
+                }
+            ), 201
         return jsonify({"error": f"Could not send verification email: {email_error}"}), 503
 
     return jsonify({"requiresVerification": True, "email": email, "username": username}), 201
@@ -748,12 +808,7 @@ def verify_email():
             return jsonify({"error": "User not found."}), 404
 
         if user["email_verified"] == 1:
-            token = str(uuid.uuid4())
-            created_at = now_local().isoformat()
-            conn.execute(
-                "INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)",
-                (token, user["id"], created_at),
-            )
+            token = create_session(conn, user["id"])
             conn.commit()
             return jsonify({"token": token, "username": user["username"], "alreadyVerified": True})
 
@@ -782,12 +837,7 @@ def verify_email():
         conn.execute("UPDATE users SET email_verified = 1 WHERE id = ?", (user["id"],))
         conn.execute("DELETE FROM email_verifications WHERE user_id = ?", (user["id"],))
 
-        token = str(uuid.uuid4())
-        created_at = now_local().isoformat()
-        conn.execute(
-            "INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)",
-            (token, user["id"], created_at),
-        )
+        token = create_session(conn, user["id"])
         conn.commit()
 
     return jsonify({"token": token, "username": user["username"]})
@@ -885,6 +935,19 @@ def login():
                         "warning": f"Email not sent in local/dev mode: {email_error}",
                     }
                 ), 403
+            if allow_auto_verify_on_email_failure():
+                with get_db() as conn:
+                    conn.execute("UPDATE users SET email_verified = 1 WHERE id = ?", (user["id"],))
+                    conn.execute("DELETE FROM email_verifications WHERE user_id = ?", (user["id"],))
+                    token = create_session(conn, user["id"])
+                    conn.commit()
+                return jsonify(
+                    {
+                        "token": token,
+                        "username": user["username"],
+                        "warning": f"Auto-verified in local/dev because email could not be sent: {email_error}",
+                    }
+                ), 200
             return jsonify(
                 {
                     "error": f"Email not verified. Could not send verification code: {email_error}",
@@ -901,14 +964,8 @@ def login():
             }
         ), 403
 
-    token = str(uuid.uuid4())
-    created_at = now_local().isoformat()
-
     with get_db() as conn:
-        conn.execute(
-            "INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)",
-            (token, user["id"], created_at),
-        )
+        token = create_session(conn, user["id"])
         conn.commit()
 
     return jsonify({"token": token, "username": username})
