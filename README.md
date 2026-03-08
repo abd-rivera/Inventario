@@ -9,7 +9,7 @@ Aplicación para gestionar productos, stock, entradas y salidas.
 - Ver historial de movimientos
 
 ## Tecnologías
-- `<Ej: React, Node.js, MySQL>`
+React, Node.js, MySQL
 
 ## Instalación
 ```bash
