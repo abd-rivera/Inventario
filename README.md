@@ -1,18 +1,22 @@
 Sistema de Inventario
 
-Aplicación para gestionar productos, stock, entradas y salidas.
+Este proyecto lo hice para llevar el control de productos de forma mas ordenada.  
+Permite registrar articulos, actualizar existencias y guardar movimientos de entrada y salida.
 
-## Funciones principales
+## Que hace
 - Registrar productos
+- Editar informacion de productos
 - Controlar stock
 - Registrar entradas y salidas
-- Ver historial de movimientos
+- Consultar movimientos realizados
 
-## Tecnologías
-React, Node.js, MySQL
+## Tecnologias usadas
+- HTML, CSS, JavaScript
+- Node.js
+- MySQL
 
-## Instalación
+## Instalacion
 ```bash
-git clone <URL_DEL_REPO>
-cd <NOMBRE_DEL_PROYECTO>
-<COMANDO_INSTALAR_DEPENDENCIAS>
+git clone https://github.com/tu-usuario/tu-repo.git
+cd tu-repo
+npm install
